@@ -1,0 +1,8 @@
+imgpush:
+  ports:
+      - "5000:5000"
+  build: .
+  volumes:
+    - ./app:/app
+    - ./images:/images
+    - ./cache:/cache
