@@ -28,7 +28,7 @@ docker run -v <PATH TO STORE IMAGES>:/images -p 5000:5000 hauxir/imgpush:latest
 ```
 
 ## Configuration
-| Setting  | Default value | Type |
+| Setting  | Default value | Description |
 | ------------- | ------------- |------------- |
 | OUTPUT_TYPE  | "png"  | An image type supported by imagemagick, e.g. png or jpg |
 | MAX_SIZE_MB  | 16  | Integer, Max size of uploaded files in megabytes |
