@@ -31,9 +31,9 @@ docker run -v <PATH TO STORE IMAGES>:/images -p 5000:5000 hauxir/imgpush:latest
 | Setting  | Default value | Type |
 | ------------- | ------------- |------------- |
 | OUTPUT_TYPE  | "png"  | An image type supported by imagemagick, e.g. png or jpg |
-| MAX_UPLOADS_PER_DAY  | "1000"  | Integer |
-| MAX_UPLOADS_PER_HOUR  | "100"  | Integer |
-| MAX_UPLOADS_PER_MINUTE  | "20"  | Integer |
+| MAX_UPLOADS_PER_DAY  | "1000"  | Integer, max per IP address |
+| MAX_UPLOADS_PER_HOUR  | "100"  | Integer, max per IP address |
+| MAX_UPLOADS_PER_MINUTE  | "20"  | Integer, max per IP address |
 | ALLOWED_ORIGINS  | "['*']"  | array of domains, e.g ['https://a.com'] |
 | VALID_SIZES  | Any size  | array of integers allowed in the h= and w= parameters, e.g "[100,200,300]". You should set this to protect against being bombarded with requests! |
 
