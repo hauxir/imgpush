@@ -8,7 +8,7 @@ Minimalist Self-hosted Image Service for user submitted images in your app (e.g.
 - Built-in Rate limiting
 - Built-in Allowed Origin whitelisting
 
-## Usage:
+## Usage
 Uploading an image:
 ```bash
 > curl -F 'file=@/some/file.jpg' http://some.host
