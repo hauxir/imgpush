@@ -148,7 +148,7 @@ def get_image(filename):
 
         resized_path = os.path.join(settings.CACHE_DIR, resized_filename)
 
-        if not os.path.isfile(resized_path):
+        if not os.path.isfile(resized_path) and (width or height):
             resized_image = _resize_image(path, width, height)
             resized_image.strip()
             resized_image.save(filename=resized_path)
