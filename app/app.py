@@ -109,6 +109,8 @@ def upload_image():
                     os.path.basename(tmp_filepath) + f".{settings.OUTPUT_TYPE}"
                 )
                 output_path = os.path.join(settings.IMAGES_DIR, output_filename)
+                if settings.OUTPUT_TYPE != "gif":
+                    converted.sequence = [converted.sequence[0]]
                 converted.save(filename=output_path)
     except MissingDelegateError:
         error = "Invalid Filetype"
