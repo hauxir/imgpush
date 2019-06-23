@@ -33,6 +33,17 @@ def _get_size_from_string(size):
     return size
 
 
+def _get_random_filename():
+    random_string = "".join(
+        random.choices(
+            string.ascii_lowercase + string.digits + string.ascii_uppercase, k=5
+        )
+    )
+    if os.path.isfile(f"{settings.IMAGES_DIR}/{random_string}.{settings.OUTPUT_TYPE}"):
+        return _get_random_filename()
+    return random_string
+
+
 def _resize_image(path, width, height):
     filename_without_extension, extension = os.path.splitext(path)
 
@@ -97,7 +108,7 @@ def upload_image():
 
     file = request.files["file"]
 
-    random_string = "".join(random.choices(string.ascii_lowercase + string.digits, k=5))
+    random_string = _get_random_filename()
     tmp_filepath = os.path.join("/tmp/", random_string)
     file.save(tmp_filepath)
     error = None
