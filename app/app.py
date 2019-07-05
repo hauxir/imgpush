@@ -119,6 +119,7 @@ def upload_image():
 
     try:
         with Image(filename=tmp_filepath) as img:
+            img.strip()
             with img.convert(output_type) as converted:
                 output_filename = os.path.basename(tmp_filepath) + f".{output_type}"
                 output_path = os.path.join(settings.IMAGES_DIR, output_filename)
