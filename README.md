@@ -30,7 +30,7 @@ docker run -v <PATH TO STORE IMAGES>:/images -p 5000:5000 hauxir/imgpush:latest
 ## Configuration
 | Setting  | Default value | Description |
 | ------------- | ------------- |------------- |
-| OUTPUT_TYPE  | "png"  | An image type supported by imagemagick, e.g. png or jpg |
+| OUTPUT_TYPE  | Same as Input file | An image type supported by imagemagick, e.g. png or jpg |
 | MAX_SIZE_MB  | "16"  | Integer, Max size per uploaded file in megabytes |
 | MAX_UPLOADS_PER_DAY  | "1000"  | Integer, max per IP address |
 | MAX_UPLOADS_PER_HOUR  | "100"  | Integer, max per IP address |
