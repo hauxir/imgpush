@@ -1,7 +1,9 @@
+import glob
 import os
 import random
 import string
 
+import filetype
 import settings
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
@@ -39,7 +41,8 @@ def _get_random_filename():
             string.ascii_lowercase + string.digits + string.ascii_uppercase, k=5
         )
     )
-    if os.path.isfile(f"{settings.IMAGES_DIR}/{random_string}.{settings.OUTPUT_TYPE}"):
+    file_exists = len(glob.glob(f"{settings.IMAGES_DIR}/{random_string}.*")) > 0
+    if file_exists:
         return _get_random_filename()
     return random_string
 
@@ -111,16 +114,15 @@ def upload_image():
     random_string = _get_random_filename()
     tmp_filepath = os.path.join("/tmp/", random_string)
     file.save(tmp_filepath)
+    output_type = settings.OUTPUT_TYPE or filetype.guess_extension(tmp_filepath)
     error = None
 
     try:
         with Image(filename=tmp_filepath) as img:
-            with img.convert(settings.OUTPUT_TYPE) as converted:
-                output_filename = (
-                    os.path.basename(tmp_filepath) + f".{settings.OUTPUT_TYPE}"
-                )
+            with img.convert(output_type) as converted:
+                output_filename = os.path.basename(tmp_filepath) + f".{output_type}"
                 output_path = os.path.join(settings.IMAGES_DIR, output_filename)
-                if settings.OUTPUT_TYPE != "gif":
+                if output_type not in ["gif"]:
                     converted.sequence = [converted.sequence[0]]
                 converted.save(filename=output_path)
     except MissingDelegateError:
@@ -155,9 +157,7 @@ def get_image(filename):
 
         filename_without_extension, extension = os.path.splitext(filename)
         dimensions = f"{width}x{height}"
-        resized_filename = (
-            filename_without_extension + f"_{dimensions}.{settings.OUTPUT_TYPE}"
-        )
+        resized_filename = filename_without_extension + f"_{dimensions}.{extension}"
 
         resized_path = os.path.join(settings.CACHE_DIR, resized_filename)
 

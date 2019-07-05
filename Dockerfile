@@ -8,6 +8,7 @@ RUN pip install flask
 RUN pip install flask-cors
 RUN pip install Flask-Limiter
 RUN pip install Wand
+RUN pip install filetype
 RUN pip install gunicorn
 
 RUN mkdir /images
