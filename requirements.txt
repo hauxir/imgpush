@@ -1,0 +1,7 @@
+filetype==1.0.5
+Flask==1.1.1
+flask_cors==3.0.8
+flask_limiter==1.0.1
+wand==0.5.7
+Werkzeug==0.16.0
+gunicorn==19.9.0

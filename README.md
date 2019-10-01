@@ -43,3 +43,7 @@ Setting configuration variables is all set through env variables that get passed
 ```
 docker run -e ALLOWED_ORIGINS="['https://a.com', 'https://b.com']" -s -v <PATH TO STORE IMAGES>:/images -p 5000:5000 hauxir/imgpush:latest
 ```
+or to quickly deploy it locally, run
+```
+docker-compose up -d
+```
