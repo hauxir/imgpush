@@ -4,12 +4,9 @@ RUN apt-get update && \
     apt-get install -y \
     libmagickwand-dev
 
-RUN pip install flask
-RUN pip install flask-cors
-RUN pip install Flask-Limiter
-RUN pip install Wand
-RUN pip install filetype
-RUN pip install gunicorn
+COPY requirements.txt .
+
+RUN pip install -r requirements.txt
 
 RUN mkdir /images
 RUN mkdir /cache
