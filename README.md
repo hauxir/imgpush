@@ -27,6 +27,54 @@ imgpush requires docker
 docker run -v <PATH TO STORE IMAGES>:/images -p 5000:5000 hauxir/imgpush:latest
 ```
 
+### Kubernetes
+
+> This is fully optional and is only needed if you want to run imgpush in Kubernetes.
+
+If you want to deploy imgpush in Kubernetes, there is an example deployment available in the Kubernetes directory.
+In case you do not have a running Kubernetes cluster yet, you can use [Minikube](https://kubernetes.io/docs/setup/) to setup a local single-node Kubernetes cluster.
+Otherwise you can just use your existing cluster.
+
+1. Verify that your cluster works:
+```
+$ kubectl get pods
+# Should return without an error, maybe prints information about some deployed pods.
+```
+
+2. Apply the `kubernetes/deployment-example.yaml` file:
+```
+$ kubectl apply -f kubernetes/deployment-example.yaml
+namespace/imgpush created
+deployment.apps/imgpush created
+persistentvolumeclaim/imgpush created
+service/imgpush created
+```
+
+3. It will take a moment while your Kubernetes downloads the current imgpush image.
+4. Verify that the deployment was successful:
+```
+$ kubectl -n imgpush get deployments.
+NAME      READY   UP-TO-DATE   AVAILABLE   AGE
+imgpush   1/1     1            1           3m41s
+
+$ kubectl -n imgpush get svc
+NAME      TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)    AGE
+imgpush   ClusterIP   10.10.10.41   <none>        5000/TCP   3m57s
+```
+
+5. When the deployment is finished, the READY column should be `1/1`.
+6. Afterwards you can forward the port to your local machine and upload an image via your webbrowser (visit http://127.0.0.1:5000/).
+```
+$ kubectl -n imgpush port-forward service/imgpush 5000
+Forwarding from 127.0.0.1:5000 -> 5000
+Handling connection for 5000
+Handling connection for 5000
+Handling connection for 5000
+Handling connection for 5000
+```
+
+7. To expose imgpush to the internet you need to configure an [Ingress](https://kubernetes.io/docs/concepts/services-networking/ingress/). The exact configuration depends on you cluster but you can find an example in the `kubernetes/deployment-example.yaml` file that you can adapt to your setup.
+
 ## Configuration
 | Setting  | Default value | Description |
 | ------------- | ------------- |------------- |

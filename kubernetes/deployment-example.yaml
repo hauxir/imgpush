@@ -1,0 +1,95 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: imgpush
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: imgpush
+  namespace: imgpush
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: imgpush
+  template:
+    metadata:
+      labels:
+        app: imgpush
+    spec:
+      containers:
+      - image: hauxir/imgpush:latest
+        name: imgpush
+        ports:
+        - containerPort: 5000
+        env:
+        # Add your configuration as environment variables.
+        # See https://github.com/hauxir/imgpush#configuration for all
+        # available settings.
+        - name: OUTPUT_TYPE
+          value: png
+        imagePullPolicy: Always # Pull always because currently no version tags exist for the docker image.
+        volumeMounts:
+        - mountPath: /images
+          name: imgpush
+      volumes:
+      - name: imgpush
+        persistentVolumeClaim:
+          claimName: imgpush
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: imgpush
+  namespace: imgpush
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi # Adjust the size according to the amount of images you expect.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: imgpush
+  namespace: imgpush
+spec:
+  selector:
+    app: imgpush
+  ports:
+  - protocol: TCP
+    port: 5000
+    targetPort: 5000
+
+# To make imgpush available outside of your kubernetes cluster you need to
+# configure an ingress. The exact settings depend on your cluster.
+# This is an example ingress. It assumes that you have a nginx ingress
+# controller and cert-manager running. Adjust the settings for your cluster
+# and domain if you want to use it.
+
+#---
+#apiVersion: networking.k8s.io/v1beta1
+#kind: Ingress
+#metadata:
+#  name: imgpush
+#  namespace: imgpush
+#  annotations:
+#    kubernetes.io/ingress.class: "nginx"
+#    certmanager.k8s.io/cluster-issuer: "letsencrypt-prod"
+#    certmanager.k8s.io/acme-challenge-type: http01
+#spec:
+#  tls:
+#  - hosts:
+#    - imgpush.example.com
+#    secretName: imgpush-ssl
+#  rules:
+#  - host: imgpush.example.com
+#    http:
+#      paths:
+#      - path: /
+#        backend:
+#          serviceName: imgpush
+#          servicePort: 5000
