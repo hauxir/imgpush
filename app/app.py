@@ -44,21 +44,10 @@ def _get_random_filename():
     return random_string
 
 def _generate_random_filename():
-    strategy = _get_random_filename_strategy()
-    if strategy == settings.STRATEGY_UUIDV4:
+    if settings.NAME_STRATEGY == settings.NAME_STRATEGY_UUIDV4:
         return str(uuid.uuid4())
-    if strategy == settings.STRATEGY_RANDOMSTR:
+    if settings.NAME_STRATEGY == settings.NAME_STRATEGY_RANDOMSTR:
         return "".join(random.choices(string.ascii_lowercase + string.digits + string.ascii_uppercase, k=5))
-
-def _get_random_filename_strategy():
-    try:
-        strategy = os.environ['strategy']
-        if strategy == settings.STRATEGY_UUIDV4 or strategy == settings.STRATEGY_RANDOMSTR:
-            return strategy
-        else:
-            return settings.DEFAULT_STRATEGY
-    except KeyError:
-        return settings.DEFAULT_STRATEGY
 
 def _resize_image(path, width, height):
     filename_without_extension, extension = os.path.splitext(path)
