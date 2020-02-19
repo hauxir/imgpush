@@ -2,7 +2,7 @@ FROM python:3.6-slim
 
 RUN apt-get update && \
     apt-get install -y \
-    libmagickwand-dev
+    libmagickwand-dev curl
 
 COPY requirements.txt .
 
@@ -17,4 +17,5 @@ COPY app /app
 
 WORKDIR /app
 
+HEALTHCHECK CMD curl http://localhost:5000/liveness -s -f -o /dev/null || exit 1
 CMD gunicorn --bind 0.0.0.0:5000 wsgi:app --access-logfile -

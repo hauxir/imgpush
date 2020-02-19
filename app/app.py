@@ -6,7 +6,7 @@ import uuid
 
 import filetype
 import settings
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, Response
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -95,6 +95,10 @@ def root():
     <input type="submit" value="Upload" name="submit">
 </form>
 """
+
+@app.route("/liveness", methods=["GET"])
+def liveness():
+    return Response(status=200)
 
 
 @app.route("/", methods=["POST"])
