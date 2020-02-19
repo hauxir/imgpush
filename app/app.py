@@ -89,12 +89,15 @@ def _resize_image(path, width, height):
 
 @app.route("/", methods=["GET"])
 def root():
-    return """
+    if settings.ALLOW_HTML_POST:
+        return """
 <form action="/" method="post" enctype="multipart/form-data">
     <input type="file" name="file" id="file">
     <input type="submit" value="Upload" name="submit">
 </form>
 """
+    else:
+        return Response(status=200)
 
 @app.route("/liveness", methods=["GET"])
 def liveness():
