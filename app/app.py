@@ -2,6 +2,7 @@ import glob
 import os
 import random
 import string
+import uuid
 
 import filetype
 import settings
@@ -36,16 +37,28 @@ def _get_size_from_string(size):
 
 
 def _get_random_filename():
-    random_string = "".join(
-        random.choices(
-            string.ascii_lowercase + string.digits + string.ascii_uppercase, k=5
-        )
-    )
+    random_string = _generate_random_filename()
     file_exists = len(glob.glob(f"{settings.IMAGES_DIR}/{random_string}.*")) > 0
     if file_exists:
         return _get_random_filename()
     return random_string
 
+def _generate_random_filename():
+    strategy = _get_random_filename_strategy()
+    if strategy == settings.STRATEGY_UUIDV4:
+        return str(uuid.uuid4())
+    if strategy == settings.STRATEGY_RANDOMSTR:
+        return "".join(random.choices(string.ascii_lowercase + string.digits + string.ascii_uppercase, k=5))
+
+def _get_random_filename_strategy():
+    try:
+        strategy = os.environ['strategy']
+        if strategy == settings.STRATEGY_UUIDV4 or strategy == settings.STRATEGY_RANDOMSTR:
+            return strategy
+        else:
+            return settings.DEFAULT_STRATEGY
+    except KeyError:
+        return settings.DEFAULT_STRATEGY
 
 def _resize_image(path, width, height):
     filename_without_extension, extension = os.path.splitext(path)

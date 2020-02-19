@@ -27,6 +27,15 @@ imgpush requires docker
 docker run -v <PATH TO STORE IMAGES>:/images -p 5000:5000 hauxir/imgpush:latest
 ```
 
+### Parameters
+
+imgpush generate the name of the file. You have the choice between 2 name generation strategies : 
+
+* randomstr : 5 random chars with numbers (**default option**)
+* uuidv4 : uuidv4
+
+To specify a strategy, you can add arguments to docker `-e strategy="uuidv4"` or `-e strategy="randomstr"`
+
 ### Kubernetes
 
 > This is fully optional and is only needed if you want to run imgpush in Kubernetes.
