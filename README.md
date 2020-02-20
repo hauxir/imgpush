@@ -75,6 +75,7 @@ Handling connection for 5000
 
 7. To expose imgpush to the internet you need to configure an [Ingress](https://kubernetes.io/docs/concepts/services-networking/ingress/). The exact configuration depends on you cluster but you can find an example in the `kubernetes/deployment-example.yaml` file that you can adapt to your setup.
 
+
 ## Configuration
 | Setting  | Default value | Description |
 | ------------- | ------------- |------------- |
@@ -85,6 +86,8 @@ Handling connection for 5000
 | MAX_UPLOADS_PER_MINUTE  | "20"  | Integer, max per IP address |
 | ALLOWED_ORIGINS  | "['*']"  | array of domains, e.g ['https://a.com'] |
 | VALID_SIZES  | Any size  | array of integers allowed in the h= and w= parameters, e.g "[100,200,300]". You should set this to protect against being bombarded with requests! |
+| ALLOWED_ORIGINS  | "['*']"  | array of domains, e.g ['https://a.com'] |
+| NAME_STRATEGY  | "randomstr"  | `randomstr` for random 5 chars, `uuidv4` for UUIDv4 |
 
 Setting configuration variables is all set through env variables that get passed to the docker container.
 ### Example:
