@@ -5,6 +5,7 @@ RUN apt-get update && \
     libmagickwand-dev curl
 
 COPY requirements.txt .
+COPY ImageMagick-6/policy.xml /etc/ImageMagick-6/policy.xml
 
 RUN pip install -r requirements.txt
 
