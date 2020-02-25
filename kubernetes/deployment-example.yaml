@@ -34,6 +34,12 @@ spec:
         volumeMounts:
         - mountPath: /images
           name: imgpush
+        livenessProbe:
+          httpGet:
+            path: /liveness
+            port: 5000            
+          initialDelaySeconds: 5
+          periodSeconds: 30
       volumes:
       - name: imgpush
         persistentVolumeClaim:
