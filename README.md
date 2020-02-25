@@ -7,6 +7,7 @@ Minimalist Self-hosted Image Service for user submitted images in your app (e.g.
 - Automatic resizing to any size of your liking
 - Built-in Rate limiting
 - Built-in Allowed Origin whitelisting
+- Liveness API 
 
 ## Usage
 Uploading an image:
@@ -74,6 +75,31 @@ Handling connection for 5000
 ```
 
 7. To expose imgpush to the internet you need to configure an [Ingress](https://kubernetes.io/docs/concepts/services-networking/ingress/). The exact configuration depends on you cluster but you can find an example in the `kubernetes/deployment-example.yaml` file that you can adapt to your setup.
+
+
+### Liveness
+
+imgpush provides the `/liveness` endpoint that always returns `200 OK` that you can use for docker Healthcheck and kubernetes liveness probe. 
+
+For Docker, as `curl` is install in the image : 
+
+```yaml
+healthcheck:
+    start_period: 0s
+    test: ['CMD-SHELL', 'curl localhost:5000/liveness -s -f -o /dev/null || exit 1']
+    interval: 30s
+```
+
+For Kubernetes
+```yaml
+livenessProbe:
+    httpGet:
+    path: /liveness
+    port: 5000            
+    initialDelaySeconds: 5
+    periodSeconds: 30
+```
+
 
 
 ## Configuration

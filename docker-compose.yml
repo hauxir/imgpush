@@ -1,8 +1,14 @@
-imgpush:
-  ports:
-      - "5000:5000"
-  build: .
-  volumes:
-    - ./app:/app
-    - ./images:/images
-    - ./cache:/cache
+version: '3.5'
+services:
+  imgpush:
+    ports:
+        - "5000:5000"
+    build: .
+    volumes:
+      - ./app:/app
+      - ./images:/images
+      - ./cache:/cache
+    healthcheck:
+      start_period: 0s
+      test: ['CMD-SHELL', 'curl localhost:5000/liveness -s -f -o /dev/null || exit 1']
+      interval: 30s
