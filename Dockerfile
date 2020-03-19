@@ -13,6 +13,7 @@ RUN mkdir /cache
 
 EXPOSE 5000
 
+COPY kubernetes/policy.xml /etc/ImageMagick-6/policy.xml
 COPY app /app
 
 WORKDIR /app
