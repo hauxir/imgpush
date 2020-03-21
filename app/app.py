@@ -21,6 +21,17 @@ CORS(app, origins=settings.ALLOWED_ORIGINS)
 app.config["MAX_CONTENT_LENGTH"] = settings.MAX_SIZE_MB * 1024 * 1024
 limiter = Limiter(app, key_func=get_remote_address, default_limits=[])
 
+app.use_x_sendfile = True
+
+
+@app.after_request
+def after_request(resp):
+    x_sendfile = resp.headers.get("X-Sendfile")
+    if x_sendfile:
+        resp.headers["X-Accel-Redirect"] = "/nginx/" + x_sendfile
+        del resp.headers["X-Sendfile"]
+    return resp
+
 
 class InvalidSize(Exception):
     pass
@@ -43,11 +54,17 @@ def _get_random_filename():
         return _get_random_filename()
     return random_string
 
+
 def _generate_random_filename():
-    if settings.NAME_STRATEGY == 'uuidv4':
+    if settings.NAME_STRATEGY == "uuidv4":
         return str(uuid.uuid4())
-    if settings.NAME_STRATEGY == 'randomstr':
-        return "".join(random.choices(string.ascii_lowercase + string.digits + string.ascii_uppercase, k=5))
+    if settings.NAME_STRATEGY == "randomstr":
+        return "".join(
+            random.choices(
+                string.ascii_lowercase + string.digits + string.ascii_uppercase, k=5
+            )
+        )
+
 
 def _resize_image(path, width, height):
     filename_without_extension, extension = os.path.splitext(path)
@@ -96,9 +113,11 @@ def root():
 </form>
 """
 
+
 @app.route("/liveness", methods=["GET"])
 def liveness():
     return Response(status=200)
+
 
 @app.route("/", methods=["POST"])
 @limiter.limit(
