@@ -1,3 +1,5 @@
+import datetime
+import time
 import glob
 import os
 import random
@@ -5,7 +7,6 @@ import string
 import uuid
 
 import filetype
-import settings
 from flask import Flask, jsonify, request, send_from_directory, Response
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -13,6 +14,8 @@ from flask_limiter.util import get_remote_address
 from wand.exceptions import MissingDelegateError
 from wand.image import Image
 from werkzeug.middleware.proxy_fix import ProxyFix
+
+import settings
 
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app)
@@ -45,6 +48,23 @@ def _get_size_from_string(size):
     except ValueError:
         size = ""
     return size
+
+
+def _clear_imagemagick_temp_files():
+    """
+    A bit of a hacky solution to prevent exhausting the cache ImageMagick uses on disk.
+    It works by checking for imagemagick cache files under /tmp/
+    and removes those that are older than settings.MAX_TMP_FILE_AGE in seconds.
+    """
+    imagemagick_temp_files = glob.glob("/tmp/magick-*")
+    for filepath in imagemagick_temp_files:
+        modified = datetime.datetime.strptime(
+            time.ctime(os.path.getmtime(filepath)), "%a %b %d %H:%M:%S %Y",
+        )
+        diff = datetime.datetime.now() - modified
+        seconds = diff.seconds
+        if seconds > settings.MAX_TMP_FILE_AGE:
+            os.remove(filepath)
 
 
 def _get_random_filename():
@@ -130,6 +150,8 @@ def liveness():
     )
 )
 def upload_image():
+    _clear_imagemagick_temp_files()
+
     if "file" not in request.files:
         return jsonify(error="File is missing!"), 400
 
@@ -187,6 +209,7 @@ def get_image(filename):
         resized_path = os.path.join(settings.CACHE_DIR, resized_filename)
 
         if not os.path.isfile(resized_path) and (width or height):
+            _clear_imagemagick_temp_files()
             resized_image = _resize_image(path, width, height)
             resized_image.strip()
             resized_image.save(filename=resized_path)
