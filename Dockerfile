@@ -7,6 +7,7 @@ RUN apt-get update && \
 
 COPY requirements.txt .
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY ImageMagick-6/policy.xml /etc/ImageMagick-6/policy.xml
 
 RUN pip install -r requirements.txt
 
