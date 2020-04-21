@@ -91,37 +91,35 @@ def _resize_image(path, width, height):
 
     with Image(filename=path) as src:
         img = src.clone()
-        current_aspect_ratio = img.width / img.height
 
-        if not width:
-            width = int(current_aspect_ratio * height)
+    current_aspect_ratio = img.width / img.height
 
-        if not height:
-            height = int(width / current_aspect_ratio)
+    if not width:
+        width = int(current_aspect_ratio * height)
 
-        desired_aspect_ratio = width / height
+    if not height:
+        height = int(width / current_aspect_ratio)
 
-        # Crop the image to fit the desired AR
-        if desired_aspect_ratio > current_aspect_ratio:
-            newheight = int(img.width / desired_aspect_ratio)
-            img.crop(
-                0,
-                int((img.height / 2) - (newheight / 2)),
-                width=img.width,
-                height=newheight,
-            )
-        else:
-            newwidth = int(img.height * desired_aspect_ratio)
-            img.crop(
-                int((img.width / 2) - (newwidth / 2)),
-                0,
-                width=newwidth,
-                height=img.height,
-            )
+    desired_aspect_ratio = width / height
 
-        img.resize(width, height)
+    # Crop the image to fit the desired AR
+    if desired_aspect_ratio > current_aspect_ratio:
+        newheight = int(img.width / desired_aspect_ratio)
+        img.crop(
+            0,
+            int((img.height / 2) - (newheight / 2)),
+            width=img.width,
+            height=newheight,
+        )
+    else:
+        newwidth = int(img.height * desired_aspect_ratio)
+        img.crop(
+            int((img.width / 2) - (newwidth / 2)), 0, width=newwidth, height=img.height,
+        )
 
-        return img
+    img.resize(width, height)
+
+    return img
 
 
 @app.route("/", methods=["GET"])
@@ -163,15 +161,20 @@ def upload_image():
     output_type = settings.OUTPUT_TYPE or filetype.guess_extension(tmp_filepath)
     error = None
 
+    output_filename = os.path.basename(tmp_filepath) + f".{output_type}"
+    output_path = os.path.join(settings.IMAGES_DIR, output_filename)
+
     try:
         with Image(filename=tmp_filepath) as img:
             img.strip()
-            with img.convert(output_type) as converted:
-                output_filename = os.path.basename(tmp_filepath) + f".{output_type}"
-                output_path = os.path.join(settings.IMAGES_DIR, output_filename)
-                if output_type not in ["gif"]:
-                    converted.sequence = [converted.sequence[0]]
-                converted.save(filename=output_path)
+            if output_type not in ["gif"]:
+                with img.sequence[0] as first_frame:
+                    with Image(image=first_frame) as first_frame_img:
+                        with first_frame_img.convert(output_type) as converted:
+                            converted.save(filename=output_path)
+            else:
+                with img.convert(output_type) as converted:
+                    converted.save(filename=output_path)
     except MissingDelegateError:
         error = "Invalid Filetype"
     finally:
