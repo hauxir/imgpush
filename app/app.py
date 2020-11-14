@@ -33,6 +33,7 @@ def after_request(resp):
     if x_sendfile:
         resp.headers["X-Accel-Redirect"] = "/nginx/" + x_sendfile
         del resp.headers["X-Sendfile"]
+    resp.headers["Referrer-Policy"] = "no-referrer-when-downgrade"
     return resp
 
 
