@@ -5,6 +5,7 @@ import os
 import random
 import string
 import uuid
+import re
 
 import filetype
 from flask import Flask, jsonify, request, send_from_directory, Response
@@ -186,6 +187,18 @@ def upload_image():
         return jsonify(error=error), 400
 
     return jsonify(filename=output_filename)
+
+@app.route("/<string:filename>", methods=["DELETE"])
+@limiter.exempt
+def delete_image(filename):
+    # check the name looks like a filename and 
+    # need some mort protection
+    if(filename) and (re.match("^[\w\d]+\.[\w\d]+$", filename)):
+        path = os.path.join(settings.IMAGES_DIR, filename)
+        # dont allow to delete "."
+        if (os.path.exists(path)) and (os.path.isfile(path)):
+            os.remove(path)
+    return Response(status=200)
 
 
 @app.route("/<string:filename>")

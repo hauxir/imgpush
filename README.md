@@ -21,6 +21,8 @@ http://some.host/somename.png?w=320&h=240
 ```
 returns the image cropped to the desired size
 
+Deleting a file : `DELETE http://some.host/somename.png`. Beware, no restriction on this url, you need to restrict it yourself
+
 ## Running
 imgpush requires docker
 
