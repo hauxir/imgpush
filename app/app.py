@@ -41,6 +41,10 @@ class InvalidSize(Exception):
     pass
 
 
+class CollisionError(Exception):
+    pass
+
+
 def _get_size_from_string(size):
     try:
         size = int(size)
@@ -70,9 +74,10 @@ def _clear_imagemagick_temp_files():
 
 def _get_random_filename():
     random_string = _generate_random_filename()
-    file_exists = len(glob.glob(f"{settings.IMAGES_DIR}/{random_string}.*")) > 0
-    if file_exists:
-        return _get_random_filename()
+    if settings.NAME_STRATEGY == "randomstr":
+        file_exists = len(glob.glob(f"{settings.IMAGES_DIR}/{random_string}.*")) > 0
+        if file_exists:
+            return _get_random_filename()
     return random_string
 
 
@@ -166,6 +171,8 @@ def upload_image():
     output_path = os.path.join(settings.IMAGES_DIR, output_filename)
 
     try:
+        if os.path.exists(output_path):
+            raise CollisionError
         with Image(filename=tmp_filepath) as img:
             img.strip()
             if output_type not in ["gif"]:
