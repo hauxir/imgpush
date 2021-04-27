@@ -70,9 +70,10 @@ def _clear_imagemagick_temp_files():
 
 def _get_random_filename():
     random_string = _generate_random_filename()
-    file_exists = len(glob.glob(f"{settings.IMAGES_DIR}/{random_string}.*")) > 0
-    if file_exists:
-        return _get_random_filename()
+    if settings.NAME_STRATEGY == "randomstr":
+        file_exists = len(glob.glob(f"{settings.IMAGES_DIR}/{random_string}.*")) > 0
+        if file_exists:
+            return _get_random_filename()
     return random_string
 
 
