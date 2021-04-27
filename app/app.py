@@ -41,6 +41,10 @@ class InvalidSize(Exception):
     pass
 
 
+class CollisionError(Exception):
+    pass
+
+
 def _get_size_from_string(size):
     try:
         size = int(size)
@@ -167,6 +171,8 @@ def upload_image():
     output_path = os.path.join(settings.IMAGES_DIR, output_filename)
 
     try:
+        if os.path.exists(output_path):
+            raise CollisionError
         with Image(filename=tmp_filepath) as img:
             img.strip()
             if output_type not in ["gif"]:
