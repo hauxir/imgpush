@@ -123,7 +123,7 @@ def _resize_image(path, width, height):
             int((img.width / 2) - (newwidth / 2)), 0, width=newwidth, height=img.height,
         )
 
-    img.resize(width, height)
+    img.sample(width, height)
 
     return img
 
