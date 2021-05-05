@@ -7,6 +7,7 @@ import string
 import uuid
 
 import filetype
+import timeout_decorator
 from flask import Flask, jsonify, request, send_from_directory, Response
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -123,7 +124,14 @@ def _resize_image(path, width, height):
             int((img.width / 2) - (newwidth / 2)), 0, width=newwidth, height=img.height,
         )
 
-    img.sample(width, height)
+    @timeout_decorator.timeout(settings.RESIZE_TIMEOUT)
+    def resize(img, width, height):
+        img.sample(width, height)
+
+    try:
+        resize(img, width, height)
+    except timeout_decorator.TimeoutError:
+        pass
 
     return img
 
@@ -225,7 +233,6 @@ def get_image(filename):
             resized_image.strip()
             resized_image.save(filename=resized_path)
             resized_image.close()
-
         return send_from_directory(settings.CACHE_DIR, resized_filename)
 
     return send_from_directory(settings.IMAGES_DIR, filename)
