@@ -8,6 +8,7 @@ import uuid
 import re
 
 import filetype
+import timeout_decorator
 from flask import Flask, jsonify, request, send_from_directory, Response
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -42,6 +43,10 @@ class InvalidSize(Exception):
     pass
 
 
+class CollisionError(Exception):
+    pass
+
+
 def _get_size_from_string(size):
     try:
         size = int(size)
@@ -71,9 +76,10 @@ def _clear_imagemagick_temp_files():
 
 def _get_random_filename():
     random_string = _generate_random_filename()
-    file_exists = len(glob.glob(f"{settings.IMAGES_DIR}/{random_string}.*")) > 0
-    if file_exists:
-        return _get_random_filename()
+    if settings.NAME_STRATEGY == "randomstr":
+        file_exists = len(glob.glob(f"{settings.IMAGES_DIR}/{random_string}.*")) > 0
+        if file_exists:
+            return _get_random_filename()
     return random_string
 
 
@@ -119,7 +125,14 @@ def _resize_image(path, width, height):
             int((img.width / 2) - (newwidth / 2)), 0, width=newwidth, height=img.height,
         )
 
-    img.resize(width, height)
+    @timeout_decorator.timeout(settings.RESIZE_TIMEOUT)
+    def resize(img, width, height):
+        img.sample(width, height)
+
+    try:
+        resize(img, width, height)
+    except timeout_decorator.TimeoutError:
+        pass
 
     return img
 
@@ -167,6 +180,8 @@ def upload_image():
     output_path = os.path.join(settings.IMAGES_DIR, output_filename)
 
     try:
+        if os.path.exists(output_path):
+            raise CollisionError
         with Image(filename=tmp_filepath) as img:
             img.strip()
             if output_type not in ["gif"]:
@@ -231,7 +246,6 @@ def get_image(filename):
             resized_image.strip()
             resized_image.save(filename=resized_path)
             resized_image.close()
-
         return send_from_directory(settings.CACHE_DIR, resized_filename)
 
     return send_from_directory(settings.IMAGES_DIR, filename)
