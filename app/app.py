@@ -208,7 +208,7 @@ def upload_image():
 def delete_image(filename):
     # check the name looks like a filename and 
     # need some mort protection
-    if(filename) and (re.match("^[\w\d]+\.[\w\d]+$", filename)):
+    if(filename) and (re.match("^[\w\d-]+\.[\w\d]+$", filename)):
         path = os.path.join(settings.IMAGES_DIR, filename)
         # dont allow to delete "."
         if (os.path.exists(path)) and (os.path.isfile(path)):
