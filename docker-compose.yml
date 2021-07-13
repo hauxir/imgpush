@@ -1,14 +1,11 @@
-version: '3.5'
+version: "3"
+
 services:
   imgpush:
+    container_name: imgpush   
+    image: hauxir/imgpush:latest
+    restart: unless-stopped
     ports:
-        - "5000:5000"
-    build: .
+      - "5000:5000/tcp"
     volumes:
-      - ./app:/app
-      - ./images:/images
-      - ./cache:/cache
-    healthcheck:
-      start_period: 0s
-      test: ['CMD-SHELL', 'curl localhost:5000/liveness -s -f -o /dev/null || exit 1']
-      interval: 30s
+      - './config:/images'
