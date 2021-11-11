@@ -4,6 +4,7 @@ import glob
 import os
 import random
 import string
+import urllib.request
 import uuid
 
 import filetype
@@ -164,14 +165,17 @@ def liveness():
 def upload_image():
     _clear_imagemagick_temp_files()
 
-    if "file" not in request.files:
-        return jsonify(error="File is missing!"), 400
-
-    file = request.files["file"]
-
     random_string = _get_random_filename()
     tmp_filepath = os.path.join("/tmp/", random_string)
-    file.save(tmp_filepath)
+
+    if "file" in request.files:
+        file = request.files["file"]
+        file.save(tmp_filepath)
+    elif "url" in request.json:
+        urllib.request.urlretrieve(request.json["url"], tmp_filepath)
+    else:
+        return jsonify(error="File is missing!"), 400
+
     output_type = settings.OUTPUT_TYPE or filetype.guess_extension(tmp_filepath)
     error = None
 
