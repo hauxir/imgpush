@@ -15,6 +15,10 @@ Uploading an image:
 > curl -F 'file=@/some/file.jpg' http://some.host
 {"filename":"somename.png"}
 ```
+Uploading an image by URL:
+```bash
+ curl -X POST -H "Content-Type: application/json" -d '{"url": "<SOME_URL>"}'  http://some.host
+ ```
 Fetching a file in a specific size(e.g. 320x240):
 ```
 http://some.host/somename.png?w=320&h=240
