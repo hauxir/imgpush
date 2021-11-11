@@ -29,6 +29,13 @@ limiter = Limiter(app, key_func=get_remote_address, default_limits=[])
 app.use_x_sendfile = True
 
 
+if settings.NUDE_FILTER_MAX_THRESHOLD:
+    from nudenet import NudeClassifier
+    nude_classifier = NudeClassifier()
+else:
+    nude_classifier = None
+
+
 @app.after_request
 def after_request(resp):
     x_sendfile = resp.headers.get("X-Sendfile")
@@ -175,6 +182,12 @@ def upload_image():
         urllib.request.urlretrieve(request.json["url"], tmp_filepath)
     else:
         return jsonify(error="File is missing!"), 400
+
+    if settings.NUDE_FILTER_MAX_THRESHOLD:
+        unsafe_val = nude_classifier.classify(tmp_filepath).get(tmp_filepath, dict()).get("unsafe", 0)
+        if unsafe_val >= settings.NUDE_FILTER_MAX_THRESHOLD:
+            os.remove(tmp_filepath)
+            return jsonify(error="Nudity not allowed"), 400
 
     output_type = settings.OUTPUT_TYPE or filetype.guess_extension(tmp_filepath)
     error = None
