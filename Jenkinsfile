@@ -6,7 +6,7 @@ properties([buildDiscarder(logRotator(artifactNumToKeepStr: '5', numToKeepStr: '
 node {
 	 
 	stage('checkout'){
-		git branch: 'feature/uuid', url: 'https://github.com/pdelaby/imgpush'
+		checkout scm
 	}
 	
 	// Ajouter un système de tags
