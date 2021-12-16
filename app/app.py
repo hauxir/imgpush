@@ -6,6 +6,7 @@ import random
 import string
 import uuid
 import re
+import subprocess
 
 import filetype
 import timeout_decorator
@@ -239,6 +240,12 @@ def get_image(filename):
 
     return send_from_directory(settings.IMAGES_DIR, filename)
 
+@app.route("/metrics", methods=["GET"])
+def metrics():
+    ps = subprocess.Popen("ls -1 /images | wc -l" ,shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    nbfiles = ps.communicate()[0].split()[0].decode('utf-8')
+    size = subprocess.check_output(['du','-s', "/images"]).split()[0].decode('utf-8')
+    return 'directory_size{service=\"imgpush\", directory=\"/images\"} %s\ndirectory_count{service=\"imgpsuh\", directory=\"/images\"} %s' % (size, nbfiles)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, threaded=True)
