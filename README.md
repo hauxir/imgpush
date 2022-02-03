@@ -120,7 +120,7 @@ livenessProbe:
 | NUDE_FILTER_MAX_THRESHOLD | None               | max unsafe value returned from nudenet library(https://github.com/notAI-tech/NudeNet), range is from 0-0.99. Blocks nudity from being uploaded.   |
 | SHOW_UPLOAD_FORM          | True               | Boolean, whether upload form should be displayed                                                                                                  |                                                                                                                                         |
 | TOKEN_REQUIRED            | False              | Boolean, if True then upload requests must be authorized                                                                                          |                                                                                                                                         |
-| BEARER_TOKEN              | None               | String, defines token to authorize upload requests when REQUIRE_TOKEN is True                                                                     |                                                                                                                                         |
+| BEARER_TOKEN              | None               | String, defines token to authorize upload requests when TOKEN_REQUIRED is True                                                                    |                                                                                                                                         |
 
 Setting configuration variables is all set through env variables that get passed to the docker container.
 ### Example:
