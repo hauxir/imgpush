@@ -13,6 +13,7 @@ from flask import Flask, jsonify, request, send_from_directory, Response
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from flask_httpauth import HTTPTokenAuth
 from wand.exceptions import MissingDelegateError
 from wand.image import Image
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -21,6 +22,7 @@ import settings
 
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app)
+auth = HTTPTokenAuth(scheme='Bearer')
 
 CORS(app, origins=settings.ALLOWED_ORIGINS)
 app.config["MAX_CONTENT_LENGTH"] = settings.MAX_SIZE_MB * 1024 * 1024
@@ -35,6 +37,10 @@ if settings.NUDE_FILTER_MAX_THRESHOLD:
 else:
     nude_classifier = None
 
+@auth.verify_token
+def verify_token(token):
+    if token == settings.BEARER_TOKEN:
+        return 'user'
 
 @app.after_request
 def after_request(resp):
@@ -146,12 +152,14 @@ def _resize_image(path, width, height):
 
 @app.route("/", methods=["GET"])
 def root():
-    return """
+    if settings.SHOW_UPLOAD_FORM:
+        return """
 <form action="/" method="post" enctype="multipart/form-data">
     <input type="file" name="file" id="file">
     <input type="submit" value="Upload" name="submit">
 </form>
 """
+    return Response(status=200)
 
 
 @app.route("/liveness", methods=["GET"])
@@ -169,7 +177,11 @@ def liveness():
         ]
     )
 )
+@auth.login_required(optional=True)
 def upload_image():
+    user = auth.current_user()
+    if user is None and settings.TOKEN_REQUIRED:
+        return jsonify(error="Token required"), 403
     _clear_imagemagick_temp_files()
 
     random_string = _get_random_filename()
@@ -218,6 +230,17 @@ def upload_image():
         return jsonify(error=error), 400
 
     return jsonify(filename=output_filename)
+
+@app.route("/<string:filename>", methods=["DELETE"])
+@auth.login_required
+def delete_image(filename):
+    path = os.path.join(settings.IMAGES_DIR, filename)
+    if os.path.isfile(path):
+        os.remove(path)
+    else:
+        return jsonify(error="File not found"), 404
+
+    return Response(status=202)
 
 
 @app.route("/<string:filename>")

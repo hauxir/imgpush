@@ -25,6 +25,11 @@ http://some.host/somename.png?w=320&h=240
 ```
 returns the image cropped to the desired size
 
+Deleting an image, it requires `TOKEN_REQUIRED` to be `True` and `BEARER_TOKEN` set (e.g. `test` like below):
+```
+curl --location --request DELETE 'http://some.host/somename.png' --header 'Authorization: Bearer test'
+```
+
 ## Running
 imgpush requires docker
 
@@ -107,17 +112,20 @@ livenessProbe:
 
 
 ## Configuration
-| Setting  | Default value | Description |
-| ------------- | ------------- |------------- |
-| OUTPUT_TYPE  | Same as Input file | An image type supported by imagemagick, e.g. png or jpg |
-| MAX_SIZE_MB  | "16"  | Integer, Max size per uploaded file in megabytes |
-| MAX_UPLOADS_PER_DAY  | "1000"  | Integer, max per IP address |
-| MAX_UPLOADS_PER_HOUR  | "100"  | Integer, max per IP address |
-| MAX_UPLOADS_PER_MINUTE  | "20"  | Integer, max per IP address |
-| ALLOWED_ORIGINS  | "['*']"  | array of domains, e.g ['https://a.com'] |
-| VALID_SIZES  | Any size  | array of integers allowed in the h= and w= parameters, e.g "[100,200,300]". You should set this to protect against being bombarded with requests! |
-| NAME_STRATEGY  | "randomstr"  | `randomstr` for random 5 chars, `uuidv4` for UUIDv4 |
-| NUDE_FILTER_MAX_THRESHOLD  | None  | max unsafe value returned from nudenet library(https://github.com/notAI-tech/NudeNet), range is from 0-0.99. Blocks nudity from being uploaded. |
+| Setting                   | Default value      | Description                                                                                                                                       |
+|---------------------------|--------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
+| OUTPUT_TYPE               | Same as Input file | An image type supported by imagemagick, e.g. png or jpg                                                                                           |
+| MAX_SIZE_MB               | "16"               | Integer, Max size per uploaded file in megabytes                                                                                                  |
+| MAX_UPLOADS_PER_DAY       | "1000"             | Integer, max per IP address                                                                                                                       |
+| MAX_UPLOADS_PER_HOUR      | "100"              | Integer, max per IP address                                                                                                                       |
+| MAX_UPLOADS_PER_MINUTE    | "20"               | Integer, max per IP address                                                                                                                       |
+| ALLOWED_ORIGINS           | "['*']"            | array of domains, e.g ['https://a.com']                                                                                                           |
+| VALID_SIZES               | Any size           | array of integers allowed in the h= and w= parameters, e.g "[100,200,300]". You should set this to protect against being bombarded with requests! |
+| NAME_STRATEGY             | "randomstr"        | `randomstr` for random 5 chars, `uuidv4` for UUIDv4                                                                                               |
+| NUDE_FILTER_MAX_THRESHOLD | None               | max unsafe value returned from nudenet library(https://github.com/notAI-tech/NudeNet), range is from 0-0.99. Blocks nudity from being uploaded.   |
+| SHOW_UPLOAD_FORM          | True               | Boolean, whether upload form should be displayed                                                                                                  |                                                                                                                                         |
+| TOKEN_REQUIRED            | False              | Boolean, if True then upload requests must be authorized                                                                                          |                                                                                                                                         |
+| BEARER_TOKEN              | None               | String, defines token to authorize upload requests when TOKEN_REQUIRED is True                                                                    |                                                                                                                                         |
 
 Setting configuration variables is all set through env variables that get passed to the docker container.
 ### Example:
