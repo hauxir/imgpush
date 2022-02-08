@@ -25,6 +25,11 @@ http://some.host/somename.png?w=320&h=240
 ```
 returns the image cropped to the desired size
 
+Deleting an image, it requires `TOKEN_REQUIRED` to be `True` and `BEARER_TOKEN` set (e.g. `test` like below):
+```
+curl --location --request DELETE 'http://some.host/somename.png' --header 'Authorization: Bearer test'
+```
+
 ## Running
 imgpush requires docker
 
