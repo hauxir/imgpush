@@ -198,16 +198,22 @@ def upload_image():
     try:
         if os.path.exists(output_path):
             raise CollisionError
-        with Image(filename=tmp_filepath) as img:
-            img.strip()
-            if output_type not in ["gif"]:
-                with img.sequence[0] as first_frame:
-                    with Image(image=first_frame) as first_frame_img:
-                        with first_frame_img.convert(output_type) as converted:
-                            converted.save(filename=output_path)
+        if output_type == "mp4":
+            if settings.ALLOW_VIDEO:
+                file.save(output_path)
             else:
-                with img.convert(output_type) as converted:
-                    converted.save(filename=output_path)
+                error = "Invalid Filetype"
+        else:
+            with Image(filename=tmp_filepath) as img:
+                img.strip()
+                if output_type not in ["gif"]:
+                    with img.sequence[0] as first_frame:
+                        with Image(image=first_frame) as first_frame_img:
+                            with first_frame_img.convert(output_type) as converted:
+                                converted.save(filename=output_path)
+                else:
+                    with img.convert(output_type) as converted:
+                        converted.save(filename=output_path)
     except MissingDelegateError:
         error = "Invalid Filetype"
     finally:
@@ -228,7 +234,9 @@ def get_image(filename):
 
     path = os.path.join(settings.IMAGES_DIR, filename)
 
-    if (width or height) and (os.path.isfile(path)):
+    filename_without_extension, extension = os.path.splitext(filename)
+
+    if (width or height) and (os.path.isfile(path)) and extension != "mp4":
         try:
             width = _get_size_from_string(width)
             height = _get_size_from_string(height)
@@ -238,7 +246,6 @@ def get_image(filename):
                 400,
             )
 
-        filename_without_extension, extension = os.path.splitext(filename)
         dimensions = f"{width}x{height}"
         resized_filename = filename_without_extension + f"_{dimensions}.{extension}"
 

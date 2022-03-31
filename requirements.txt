@@ -1,4 +1,4 @@
-filetype==1.0.5
+filetype==1.0.10
 Flask==1.1.1
 flask_cors==3.0.9
 flask_limiter==1.0.1
