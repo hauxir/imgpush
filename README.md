@@ -83,9 +83,9 @@ Handling connection for 5000
 
 ### Liveness
 
-imgpush provides the `/liveness` endpoint that always returns `200 OK` that you can use for docker Healthcheck and kubernetes liveness probe. 
+imgpush provides the `/liveness` endpoint that always returns `200 OK` that you can use for Docker healthcheck and Kubernetes liveness probe. 
 
-For Docker, as `curl` is install in the image : 
+For Docker, as `curl` is installed in the image : 
 
 ```yaml
 healthcheck:
@@ -103,6 +103,27 @@ livenessProbe:
     initialDelaySeconds: 5
     periodSeconds: 30
 ```
+
+### Metrics
+
+imgpush provides the `/metrics` endpoint that returns metrics which can be imported in Prometheus, with the size of the `/images` directory (in kilobytes) and the number of files in it :
+
+```
+directory_size{directory="/images", service="imgpush"} 202724
+directory_count{directory="/images", service="imgpush"} 2464
+```
+
+In order to scrape it, just add a config under `scrape_configs:` in your Prometheus configuration with the url of the instance (here, to scrape 'https://imgpush.myap.com`)
+
+```yml
+scrape_configs:
+  - job_name: 'imgpush_app_insight'
+    scheme: https
+    static_configs:
+    - targets: ['imgpush.myapp.com']
+```
+
+then you can monitor your imgpush instance ( and compute an average image size, get the increase rate, ... ). 
 
 
 
