@@ -236,7 +236,7 @@ def get_image(filename):
 
     filename_without_extension, extension = os.path.splitext(filename)
 
-    if (width or height) and (os.path.isfile(path)) and extension != "mp4":
+    if (width or height) and (os.path.isfile(path)) and extension != ".mp4":
         try:
             width = _get_size_from_string(width)
             height = _get_size_from_string(height)
