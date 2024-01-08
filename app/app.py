@@ -3,6 +3,7 @@ import time
 import glob
 import os
 import random
+import shutil
 import string
 import urllib.request
 import uuid
@@ -200,7 +201,7 @@ def upload_image():
             raise CollisionError
         if output_type == "mp4":
             if settings.ALLOW_VIDEO:
-                file.save(output_path)
+                shutil.move(tmp_filepath, output_path)
             else:
                 error = "Invalid Filetype"
         else:
