@@ -105,8 +105,15 @@ def _generate_random_filename():
 def _resize_image(path, width, height):
     filename_without_extension, extension = os.path.splitext(path)
 
+    is_animated_webp = False
+
     with Image(filename=path) as src:
-        img = src.clone()
+        is_animated_webp = extension == ".webp" and len(src.sequence) > 1
+
+        if is_animated_webp:
+            img = src.convert("gif")
+        else:
+            img = src.clone()
 
     current_aspect_ratio = img.width / img.height
 
@@ -141,6 +148,11 @@ def _resize_image(path, width, height):
         resize(img, width, height)
     except timeout_decorator.TimeoutError:
         pass
+
+    if is_animated_webp:
+        converted = img.convert("webp")
+        img.close()
+        return converted
 
     return img
 
