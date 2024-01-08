@@ -173,11 +173,14 @@ def liveness():
 def upload_image():
     _clear_imagemagick_temp_files()
 
+    is_svg = False
+
     random_string = _get_random_filename()
     tmp_filepath = os.path.join("/tmp/", random_string)
 
     if "file" in request.files:
         file = request.files["file"]
+        is_svg = file.filename.endswith(".svg")
         file.save(tmp_filepath)
     elif "url" in request.json:
         urllib.request.urlretrieve(request.json["url"], tmp_filepath)
@@ -190,7 +193,14 @@ def upload_image():
             os.remove(tmp_filepath)
             return jsonify(error="Nudity not allowed"), 400
 
-    output_type = settings.OUTPUT_TYPE or filetype.guess_extension(tmp_filepath)
+    file_filetype = filetype.guess_extension(tmp_filepath)
+    output_type = (settings.OUTPUT_TYPE or file_filetype).replace(".", "")
+
+    if file_filetype == "mp4":
+        output_type = file_filetype
+    elif is_svg:
+        output_type = "svg"
+
     error = None
 
     output_filename = os.path.basename(tmp_filepath) + f".{output_type}"
@@ -204,10 +214,12 @@ def upload_image():
                 shutil.move(tmp_filepath, output_path)
             else:
                 error = "Invalid Filetype"
+        elif output_type == "svg":
+            shutil.move(tmp_filepath, output_path)
         else:
             with Image(filename=tmp_filepath) as img:
                 img.strip()
-                if output_type not in ["gif"]:
+                if output_type not in ["gif", "webp"]:
                     with img.sequence[0] as first_frame:
                         with Image(image=first_frame) as first_frame_img:
                             with first_frame_img.convert(output_type) as converted:
