@@ -6,7 +6,7 @@ services:
     build: .
     volumes:
       - ./app:/app
-      - ./images:/images
+      - ./files:/files
       - ./cache:/cache
     healthcheck:
       start_period: 0s
