@@ -11,6 +11,15 @@ node {
 	
 	// Ajouter un système de tags
     stage('build docker') {
-        docker.build("intoo/imgpush:latest", '.')
+		def dockerTag = env.BRANCH_NAME.replaceAll('/', '-')
+        echo "Docker tag :  intoo/imgpush:${dockerTag}"
+
+        docker.withRegistry( '', "dockerhub" ) {
+			def customImage = docker.build("intoo/imgpush:${dockerTag}", '.')
+			customImage.push()
+			if(env.BRANCH_NAME == 'master'){
+				customImage.push('latest')
+			}
+		}
     }
 }
