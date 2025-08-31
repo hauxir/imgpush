@@ -1,16 +1,18 @@
+import contextlib
 import datetime
-import time
 import glob
 import os
 import random
 import shutil
 import string
+import time
 import urllib.request
 import uuid
 
 import filetype
+import settings
 import timeout_decorator
-from flask import Flask, jsonify, request, send_from_directory, Response
+from flask import Flask, Response, jsonify, request, send_from_directory
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -18,14 +20,12 @@ from wand.exceptions import MissingDelegateError
 from wand.image import Image
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-import settings
-
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app)
 
 CORS(app, origins=settings.ALLOWED_ORIGINS)
 app.config["MAX_CONTENT_LENGTH"] = settings.MAX_SIZE_MB * 1024 * 1024
-limiter = Limiter(app, key_func=get_remote_address, default_limits=[])
+limiter = Limiter(get_remote_address, app=app, default_limits=[])
 
 app.use_x_sendfile = True
 
@@ -47,7 +47,7 @@ def after_request(resp):
     return resp
 
 
-class InvalidSize(Exception):
+class InvalidSizeError(Exception):
     pass
 
 
@@ -59,7 +59,7 @@ def _get_size_from_string(size):
     try:
         size = int(size)
         if len(settings.VALID_SIZES) and size not in settings.VALID_SIZES:
-            raise InvalidSize
+            raise InvalidSizeError
     except ValueError:
         size = ""
     return size
@@ -82,7 +82,7 @@ def _clear_imagemagick_temp_files():
             os.remove(filepath)
 
 
-def _get_random_filename():
+def _get_random_filename() -> str:
     random_string = _generate_random_filename()
     if settings.NAME_STRATEGY == "randomstr":
         file_exists = len(glob.glob(f"{settings.IMAGES_DIR}/{random_string}.*")) > 0
@@ -91,7 +91,7 @@ def _get_random_filename():
     return random_string
 
 
-def _generate_random_filename():
+def _generate_random_filename() -> str:
     if settings.NAME_STRATEGY == "uuidv4":
         return str(uuid.uuid4())
     if settings.NAME_STRATEGY == "randomstr":
@@ -100,10 +100,11 @@ def _generate_random_filename():
                 string.ascii_lowercase + string.digits + string.ascii_uppercase, k=5
             )
         )
+    return ""  # Add default return for type safety
 
 
 def _resize_image(path, width, height):
-    filename_without_extension, extension = os.path.splitext(path)
+    _, extension = os.path.splitext(path)
 
     is_animated_webp = False
 
@@ -144,10 +145,8 @@ def _resize_image(path, width, height):
     def resize(img, width, height):
         img.sample(width, height)
 
-    try:
+    with contextlib.suppress(timeout_decorator.TimeoutError):
         resize(img, width, height)
-    except timeout_decorator.TimeoutError:
-        pass
 
     if is_animated_webp:
         converted = img.convert("webp")
@@ -188,7 +187,7 @@ def upload_image():
     is_svg = False
 
     random_string = _get_random_filename()
-    tmp_filepath = os.path.join("/tmp/", random_string)
+    tmp_filepath = os.path.join("/tmp", random_string)
 
     if "file" in request.files:
         file = request.files["file"]
@@ -200,7 +199,7 @@ def upload_image():
         return jsonify(error="File is missing!"), 400
 
     if settings.NUDE_FILTER_MAX_THRESHOLD:
-        unsafe_val = nude_classifier.classify(tmp_filepath).get(tmp_filepath, dict()).get("unsafe", 0)
+        unsafe_val = nude_classifier.classify(tmp_filepath).get(tmp_filepath, {}).get("unsafe", 0)
         if unsafe_val >= settings.NUDE_FILTER_MAX_THRESHOLD:
             os.remove(tmp_filepath)
             return jsonify(error="Nudity not allowed"), 400
@@ -232,10 +231,11 @@ def upload_image():
             with Image(filename=tmp_filepath) as img:
                 img.strip()
                 if output_type not in ["gif", "webp"]:
-                    with img.sequence[0] as first_frame:
-                        with Image(image=first_frame) as first_frame_img:
-                            with first_frame_img.convert(output_type) as converted:
-                                converted.save(filename=output_path)
+                    # Extract first frame for non-animated formats
+                    first_frame = img.sequence[0]  # type: ignore
+                    with Image(image=first_frame) as first_frame_img, \
+                         first_frame_img.convert(output_type) as converted:
+                        converted.save(filename=output_path)
                 else:
                     with img.convert(output_type) as converted:
                         converted.save(filename=output_path)
@@ -265,7 +265,7 @@ def get_image(filename):
         try:
             width = _get_size_from_string(width)
             height = _get_size_from_string(height)
-        except InvalidSize:
+        except InvalidSizeError:
             return (
                 jsonify(error=f"size value must be one of {settings.VALID_SIZES}"),
                 400,
