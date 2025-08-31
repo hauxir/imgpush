@@ -14,10 +14,15 @@ jobs:
       with:
         python-version: '3.12'
 
-    - name: Install dependencies
+    - name: Setup venv and install dependencies
       run: |
+        python -m venv venv
+        source venv/bin/activate
+        python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install -r requirements-dev.txt
 
     - name: Run checks
-      run: make check
+      run: |
+        source venv/bin/activate
+        make check
