@@ -1,0 +1,3 @@
+"""Type stubs for Wand exceptions."""
+
+class MissingDelegateError(Exception): ...

@@ -7,6 +7,7 @@ import shutil
 import string
 import time
 import uuid
+from typing import Optional, Union
 
 import settings
 import timeout_decorator
@@ -28,17 +29,17 @@ class CollisionError(Exception):
     pass
 
 
-def get_size_from_string(size):
+def get_size_from_string(size: str) -> Union[int, str]:
     try:
-        size = int(size)
-        if len(settings.VALID_SIZES) and size not in settings.VALID_SIZES:
+        size_int = int(size)
+        if len(settings.VALID_SIZES) and size_int not in settings.VALID_SIZES:
             raise InvalidSizeError
+        return size_int
     except ValueError:
-        size = ""
-    return size
+        return ""
 
 
-def clear_imagemagick_temp_files():
+def clear_imagemagick_temp_files() -> None:
     """
     A bit of a hacky solution to prevent exhausting the cache ImageMagick uses on disk.
     It works by checking for imagemagick cache files under /tmp/
@@ -67,7 +68,7 @@ def get_random_filename() -> str:
 def generate_random_filename() -> str:
     if settings.NAME_STRATEGY == "uuidv4":
         return str(uuid.uuid4())
-    if settings.NAME_STRATEGY == "randomstr":
+    elif settings.NAME_STRATEGY == "randomstr":
         return "".join(
             random.choices(
                 string.ascii_lowercase + string.digits + string.ascii_uppercase, k=5
@@ -76,7 +77,7 @@ def generate_random_filename() -> str:
     return ""
 
 
-def resize_image(path, width, height):
+def resize_image(path: str, width: Union[int, str], height: Union[int, str]) -> Image:
     _, extension = os.path.splitext(path)
 
     is_animated_webp = False
@@ -91,13 +92,17 @@ def resize_image(path, width, height):
 
     current_aspect_ratio = img.width / img.height
 
-    if not width:
-        width = int(current_aspect_ratio * height)
+    # Convert to integers if they're strings or empty
+    width_int = int(width) if width else 0
+    height_int = int(height) if height else 0
 
-    if not height:
-        height = int(width / current_aspect_ratio)
+    if not width_int:
+        width_int = int(current_aspect_ratio * height_int)
 
-    desired_aspect_ratio = width / height
+    if not height_int:
+        height_int = int(width_int / current_aspect_ratio)
+
+    desired_aspect_ratio = width_int / height_int
 
     # Crop the image to fit the desired AR
     if desired_aspect_ratio > current_aspect_ratio:
@@ -115,11 +120,11 @@ def resize_image(path, width, height):
         )
 
     @timeout_decorator.timeout(settings.RESIZE_TIMEOUT)
-    def resize(img, width, height):
+    def resize(img: Image, width: int, height: int) -> None:
         img.sample(width, height)
 
     with contextlib.suppress(timeout_decorator.TimeoutError):
-        resize(img, width, height)
+        resize(img, width_int, height_int)
 
     if is_animated_webp:
         converted = img.convert("webp")
@@ -129,7 +134,7 @@ def resize_image(path, width, height):
     return img
 
 
-def check_nudity_filter(filepath):
+def check_nudity_filter(filepath: str) -> bool:
     """Check if image passes nudity filter"""
     if settings.NUDE_FILTER_MAX_THRESHOLD:
         unsafe_val = nude_classifier.classify(filepath).get(filepath, {}).get("unsafe", 0)
@@ -137,7 +142,7 @@ def check_nudity_filter(filepath):
     return False
 
 
-def process_image(tmp_filepath, output_path, output_type, is_svg=False):
+def process_image(tmp_filepath: str, output_path: str, output_type: str, is_svg: bool = False) -> Optional[str]:
     """Process and save image with appropriate format conversion"""
     error = None
 

@@ -1,5 +1,6 @@
 import os
 import urllib.request
+from typing import Any, Union
 
 import filetype
 import imgpush
@@ -17,11 +18,11 @@ CORS(app, origins=settings.ALLOWED_ORIGINS)
 app.config["MAX_CONTENT_LENGTH"] = settings.MAX_SIZE_MB * 1024 * 1024
 limiter = Limiter(get_remote_address, app=app, default_limits=[])
 
-app.use_x_sendfile = True
+app.config["USE_X_SENDFILE"] = True
 
 
 @app.after_request
-def after_request(resp):
+def after_request(resp: Any) -> Any:
     x_sendfile = resp.headers.get("X-Sendfile")
     if x_sendfile:
         resp.headers["X-Accel-Redirect"] = "/nginx/" + x_sendfile
@@ -33,7 +34,7 @@ def after_request(resp):
 
 
 @app.route("/", methods=["GET"])
-def root():
+def root() -> str:
     return """
 <form action="/" method="post" enctype="multipart/form-data">
     <input type="file" name="file" id="file">
@@ -43,7 +44,7 @@ def root():
 
 
 @app.route("/liveness", methods=["GET"])
-def liveness():
+def liveness() -> Response:
     return Response(status=200)
 
 
@@ -57,7 +58,7 @@ def liveness():
         ]
     )
 )
-def upload_image():
+def upload_image() -> Union[tuple[Any, int], Any]:
     imgpush.clear_imagemagick_temp_files()
 
     is_svg = False
@@ -69,7 +70,7 @@ def upload_image():
         file = request.files["file"]
         is_svg = file.filename.endswith(".svg")
         file.save(tmp_filepath)
-    elif "url" in request.json:
+    elif request.json and "url" in request.json:
         urllib.request.urlretrieve(request.json["url"], tmp_filepath)
     else:
         return jsonify(error="File is missing!"), 400
@@ -99,7 +100,7 @@ def upload_image():
 
 @app.route("/<string:filename>")
 @limiter.exempt
-def get_image(filename):
+def get_image(filename: str) -> Union[tuple[Any, int], Response]:
     width = request.args.get("w", "")
     height = request.args.get("h", "")
 

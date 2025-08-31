@@ -8,7 +8,7 @@ requires-python = ">=3.9"
 venvPath = "."
 venv = "venv"
 pythonVersion = "3.12"
-typeCheckingMode = "standard"
+typeCheckingMode = "strict"
 reportMissingImports = true
 reportMissingTypeStubs = false
 reportUnusedImport = true
@@ -23,11 +23,24 @@ reportOptionalContextManager = false
 reportOptionalOperand = false
 reportTypedDictNotRequiredAccess = false
 reportPrivateImportUsage = false
-reportGeneralTypeIssues = "warning"
-reportArgumentType = "warning"
-reportCallIssue = "warning"
+reportGeneralTypeIssues = "error"
+reportArgumentType = "error"
+reportCallIssue = "error"
+reportMissingParameterType = "error"
+reportUntypedFunctionDecorator = "error"
+reportUntypedClassDecorator = "error"
+reportUntypedBaseClass = "error"
+reportUnknownParameterType = "warning"
+reportUnknownArgumentType = "warning"
+reportUnknownLambdaType = "warning"
+reportUnknownVariableType = "warning"
+reportUnknownMemberType = "warning"
+reportImplicitStringConcatenation = "warning"
+reportUnnecessaryComparison = "warning"
+reportMissingModuleSource = "information"
 include = ["app"]
 exclude = ["**/node_modules", "**/__pycache__", "venv"]
+stubPath = "stubs"
 
 [tool.ruff]
 target-version = "py39"
