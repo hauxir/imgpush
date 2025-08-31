@@ -1,22 +1,23 @@
 import contextlib
 import os
+from typing import Optional
 
-IMAGES_DIR = "/images/"
-CACHE_DIR = "/cache/"
-OUTPUT_TYPE = None
-MAX_UPLOADS_PER_DAY = 1000
-MAX_UPLOADS_PER_HOUR = 100
-MAX_UPLOADS_PER_MINUTE = 20
-ALLOWED_ORIGINS = ["*"]
-NAME_STRATEGY = "randomstr"
-MAX_TMP_FILE_AGE = 5 * 60
-RESIZE_TIMEOUT = 5
-NUDE_FILTER_MAX_THRESHOLD = None
-ALLOW_VIDEO = False
+IMAGES_DIR: str = "/images/"
+CACHE_DIR: str = "/cache/"
+OUTPUT_TYPE: Optional[str] = None
+MAX_UPLOADS_PER_DAY: int = 1000
+MAX_UPLOADS_PER_HOUR: int = 100
+MAX_UPLOADS_PER_MINUTE: int = 20
+ALLOWED_ORIGINS: list[str] = ["*"]
+NAME_STRATEGY: str = "randomstr"
+MAX_TMP_FILE_AGE: int = 5 * 60
+RESIZE_TIMEOUT: int = 5
+NUDE_FILTER_MAX_THRESHOLD: Optional[float] = None
+ALLOW_VIDEO: bool = False
 
-VALID_SIZES = []
+VALID_SIZES: list[int] = []
 
-MAX_SIZE_MB = 16
+MAX_SIZE_MB: int = 16
 
 for variable in [item for item in globals() if not item.startswith("__")]:
     NULL = "NULL"
