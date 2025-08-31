@@ -136,7 +136,7 @@ def resize_image(path: str, width: Union[int, str], height: Union[int, str]) -> 
 
 def check_nudity_filter(filepath: str) -> bool:
     """Check if image passes nudity filter"""
-    if settings.NUDE_FILTER_MAX_THRESHOLD:
+    if settings.NUDE_FILTER_MAX_THRESHOLD and nude_classifier is not None:
         unsafe_val = nude_classifier.classify(filepath).get(filepath, {}).get("unsafe", 0)
         return unsafe_val >= settings.NUDE_FILTER_MAX_THRESHOLD
     return False

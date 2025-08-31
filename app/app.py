@@ -68,7 +68,7 @@ def upload_image() -> Union[tuple[Any, int], Any]:
 
     if "file" in request.files:
         file = request.files["file"]
-        is_svg = file.filename.endswith(".svg")
+        is_svg = file.filename is not None and file.filename.endswith(".svg")
         file.save(tmp_filepath)
     elif request.json and "url" in request.json:
         urllib.request.urlretrieve(request.json["url"], tmp_filepath)
@@ -80,7 +80,7 @@ def upload_image() -> Union[tuple[Any, int], Any]:
         return jsonify(error="Nudity not allowed"), 400
 
     file_filetype = filetype.guess_extension(tmp_filepath)
-    output_type = (settings.OUTPUT_TYPE or file_filetype).replace(".", "")
+    output_type = (settings.OUTPUT_TYPE or file_filetype or "").replace(".", "")
 
     if file_filetype == "mp4":
         output_type = file_filetype
