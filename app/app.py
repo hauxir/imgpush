@@ -119,7 +119,7 @@ def get_image(filename: str) -> Union[tuple[Any, int], Response]:
             )
 
         dimensions = f"{width}x{height}"
-        resized_filename = filename_without_extension + f"_{dimensions}.{extension}"
+        resized_filename = filename_without_extension + f"_{dimensions}{extension}"
 
         resized_path = os.path.join(settings.CACHE_DIR, resized_filename)
 
