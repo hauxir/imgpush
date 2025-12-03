@@ -5,10 +5,12 @@ import os
 import random
 import shutil
 import string
+import tempfile
 import time
 import uuid
 from typing import Optional, Union
 
+import filetype
 import settings
 import timeout_decorator
 from wand.exceptions import MissingDelegateError
@@ -134,11 +136,68 @@ def resize_image(path: str, width: Union[int, str], height: Union[int, str]) -> 
     return img
 
 
+def extract_middle_frame(filepath: str) -> Optional[str]:
+    """Extract middle frame from animated media (GIF, MP4, animated WebP)"""
+    file_type = filetype.guess(filepath)
+    if not file_type:
+        return None
+
+    extension = file_type.extension
+
+    # Check if it's an animated format
+    if extension in ['gif', 'mp4', 'webp']:
+        try:
+            with Image(filename=filepath) as img:
+                # Check if it's actually animated (has multiple frames)
+                if len(img.sequence) > 1:
+                    # Get the middle frame
+                    middle_index = len(img.sequence) // 2
+                    middle_frame = img.sequence[middle_index]
+
+                    # Save middle frame to temporary file
+                    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
+                        temp_filepath = temp_file.name
+
+                    with Image(image=middle_frame) as frame_img:
+                        frame_img.format = 'png'
+                        frame_img.save(filename=temp_filepath)
+
+                    return temp_filepath
+                elif extension == 'mp4':
+                    # For MP4s, even single frame extraction is useful
+                    # Extract first frame since it's not animated in ImageMagick sense
+                    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
+                        temp_filepath = temp_file.name
+
+                    with Image(filename=f"{filepath}[0]") as frame:
+                        frame.format = 'png'
+                        frame.save(filename=temp_filepath)
+
+                    return temp_filepath
+        except Exception:
+            # If extraction fails, return None to fall back to original file
+            pass
+
+    return None
+
+
 def check_nudity_filter(filepath: str) -> bool:
-    """Check if image passes nudity filter"""
+    """Check if image/video passes nudity filter"""
     if settings.NUDE_FILTER_MAX_THRESHOLD and nude_classifier is not None:
-        unsafe_val = nude_classifier.classify(filepath).get(filepath, {}).get("unsafe", 0)
-        return unsafe_val >= settings.NUDE_FILTER_MAX_THRESHOLD
+        # Try to extract middle frame for animated formats
+        temp_frame_path = extract_middle_frame(filepath)
+
+        # Use the extracted frame if available, otherwise use original file
+        check_path = temp_frame_path if temp_frame_path else filepath
+
+        try:
+            unsafe_val = nude_classifier.classify(check_path).get(check_path, {}).get("unsafe", 0)
+            return unsafe_val >= settings.NUDE_FILTER_MAX_THRESHOLD
+        finally:
+            # Clean up temporary frame file if created
+            if temp_frame_path and os.path.exists(temp_frame_path):
+                os.remove(temp_frame_path)
+
     return False
 
 
