@@ -1,40 +1,56 @@
 import os
 import urllib.request
-from typing import Any, Union
+from typing import Any, Optional
 
+import aiofiles
 import filetype
 import imgpush
 import settings
 import video
-from flask import Flask, Response, jsonify, request, send_from_directory
-from flask_cors import CORS
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-from werkzeug.middleware.proxy_fix import ProxyFix
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse, Response
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+from starlette.middleware.base import BaseHTTPMiddleware
 
-app = Flask(__name__)
-app.wsgi_app = ProxyFix(app.wsgi_app)
+app = FastAPI(openapi_url=None)
 
-CORS(app, origins=settings.ALLOWED_ORIGINS)
-app.config["MAX_CONTENT_LENGTH"] = settings.MAX_SIZE_MB * 1024 * 1024
-limiter = Limiter(get_remote_address, app=app, default_limits=[])
-
-app.config["USE_X_SENDFILE"] = True
-
-
-@app.after_request
-def after_request(resp: Any) -> Any:
-    x_sendfile = resp.headers.get("X-Sendfile")
-    if x_sendfile:
-        resp.headers["X-Accel-Redirect"] = "/nginx/" + x_sendfile
-        del resp.headers["X-Sendfile"]
-    resp.headers["Referrer-Policy"] = "no-referrer-when-downgrade"
-    return resp
+# Rate limiter
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
 
 
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> Response:
+    return Response(content="Rate limit exceeded", status_code=429)
 
 
-@app.route("/", methods=["GET"])
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+class HeaderMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: Any) -> Response:
+        response: Response = await call_next(request)
+        x_sendfile = response.headers.get("X-Sendfile")
+        if x_sendfile:
+            response.headers["X-Accel-Redirect"] = "/nginx/" + x_sendfile
+            del response.headers["X-Sendfile"]
+        response.headers["Referrer-Policy"] = "no-referrer-when-downgrade"
+        return response
+
+
+app.add_middleware(HeaderMiddleware)
+
+
+@app.get("/", response_class=HTMLResponse)
 def root() -> str:
     if settings.HIDE_UPLOAD_FORM:
         return ""
@@ -46,22 +62,19 @@ def root() -> str:
 """
 
 
-@app.route("/liveness", methods=["GET"])
+@app.get("/liveness")
 def liveness() -> Response:
-    return Response(status=200)
+    return Response(status_code=200)
 
 
-@app.route("/", methods=["POST"])
+@app.post("/")
 @limiter.limit(
-    "".join(
-        [
-            f"{settings.MAX_UPLOADS_PER_DAY}/day;",
-            f"{settings.MAX_UPLOADS_PER_HOUR}/hour;",
-            f"{settings.MAX_UPLOADS_PER_MINUTE}/minute",
-        ]
-    )
+    f"{settings.MAX_UPLOADS_PER_DAY}/day;{settings.MAX_UPLOADS_PER_HOUR}/hour;{settings.MAX_UPLOADS_PER_MINUTE}/minute"
 )
-def upload_image() -> Union[tuple[Any, int], Any]:
+async def upload_image(
+    request: Request,
+    file: Optional[UploadFile] = File(default=None),
+) -> dict[str, str]:
     imgpush.clear_imagemagick_temp_files()
 
     is_svg = False
@@ -69,18 +82,25 @@ def upload_image() -> Union[tuple[Any, int], Any]:
     random_string = imgpush.get_random_filename()
     tmp_filepath = os.path.join("/tmp", random_string)
 
-    if "file" in request.files:
-        file = request.files["file"]
-        is_svg = file.filename is not None and file.filename.endswith(".svg")
-        file.save(tmp_filepath)
-    elif request.json and "url" in request.json:
-        urllib.request.urlretrieve(request.json["url"], tmp_filepath)
+    if file is not None and file.filename:
+        is_svg = file.filename.endswith(".svg")
+        async with aiofiles.open(tmp_filepath, "wb") as f:
+            content = await file.read()
+            await f.write(content)
     else:
-        return jsonify(error="File is missing!"), 400
+        # Check for JSON body with URL
+        try:
+            body = await request.json()
+            if "url" in body:
+                urllib.request.urlretrieve(body["url"], tmp_filepath)
+            else:
+                raise HTTPException(status_code=400, detail="File is missing!")
+        except Exception:
+            raise HTTPException(status_code=400, detail="File is missing!")
 
     if imgpush.check_nudity_filter(tmp_filepath):
         os.remove(tmp_filepath)
-        return jsonify(error="Nudity not allowed"), 400
+        raise HTTPException(status_code=400, detail="Nudity not allowed")
 
     file_filetype = filetype.guess_extension(tmp_filepath)
     output_type = (settings.OUTPUT_TYPE or file_filetype or "").replace(".", "")
@@ -89,10 +109,13 @@ def upload_image() -> Union[tuple[Any, int], Any]:
         output_type = file_filetype
         if video.check_video_duration(tmp_filepath):
             os.remove(tmp_filepath)
-            return jsonify(error=f"Video exceeds maximum duration of {settings.MAX_VIDEO_DURATION} seconds"), 400
+            raise HTTPException(
+                status_code=400,
+                detail=f"Video exceeds maximum duration of {settings.MAX_VIDEO_DURATION} seconds",
+            )
         if video.check_video_nudity_filter(tmp_filepath):
             os.remove(tmp_filepath)
-            return jsonify(error="Nudity not allowed"), 400
+            raise HTTPException(status_code=400, detail="Nudity not allowed")
     elif is_svg:
         output_type = "svg"
 
@@ -102,29 +125,29 @@ def upload_image() -> Union[tuple[Any, int], Any]:
     error = imgpush.process_image(tmp_filepath, output_path, output_type, is_svg)
 
     if error:
-        return jsonify(error=error), 400
+        raise HTTPException(status_code=400, detail=error)
 
-    return jsonify(filename=output_filename)
+    return {"filename": output_filename}
 
 
-@app.route("/<string:filename>")
-@limiter.exempt
-def get_image(filename: str) -> Union[tuple[Any, int], Response]:
-    width = request.args.get("w", "")
-    height = request.args.get("h", "")
-
+@app.get("/{filename:path}")
+def get_image(
+    filename: str,
+    w: str = Query(default=""),
+    h: str = Query(default=""),
+) -> FileResponse:
     path = os.path.join(settings.IMAGES_DIR, filename)
 
     filename_without_extension, extension = os.path.splitext(filename)
 
-    if (width or height) and (os.path.isfile(path)) and extension != ".mp4":
+    if (w or h) and os.path.isfile(path) and extension != ".mp4":
         try:
-            width = imgpush.get_size_from_string(width)
-            height = imgpush.get_size_from_string(height)
+            width = imgpush.get_size_from_string(w)
+            height = imgpush.get_size_from_string(h)
         except imgpush.InvalidSizeError:
-            return (
-                jsonify(error=f"size value must be one of {settings.VALID_SIZES}"),
-                400,
+            raise HTTPException(
+                status_code=400,
+                detail=f"size value must be one of {settings.VALID_SIZES}",
             )
 
         dimensions = f"{width}x{height}"
@@ -138,10 +161,6 @@ def get_image(filename: str) -> Union[tuple[Any, int], Response]:
             resized_image.strip()
             resized_image.save(filename=resized_path)
             resized_image.close()
-        return send_from_directory(settings.CACHE_DIR, resized_filename)
+        return FileResponse(resized_path, headers={"X-Sendfile": resized_path})
 
-    return send_from_directory(settings.IMAGES_DIR, filename)
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, threaded=True)
+    return FileResponse(path, headers={"X-Sendfile": path})

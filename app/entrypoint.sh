@@ -1,3 +1,3 @@
 #!/bin/bash
 nginx
-gunicorn --bind unix:imgpush.sock wsgi:app --access-logfile -
+uvicorn app:app --uds imgpush.sock --access-log

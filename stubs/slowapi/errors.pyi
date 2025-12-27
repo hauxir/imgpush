@@ -1,0 +1,3 @@
+class RateLimitExceeded(Exception):
+    detail: str
+    def __init__(self, detail: str = "Rate limit exceeded") -> None: ...
