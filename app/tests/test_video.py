@@ -116,10 +116,10 @@ class TestCheckVideoNudityFilter:
     def test_returns_false_for_safe_video(self, short_video, monkeypatch):
         import video
 
-        # Mock the classifier to return safe values
+        # Mock the classifier to return safe values for batch classification
         class MockClassifier:
-            def classify(self, filepath):
-                return {filepath: {"unsafe": 0.1}}
+            def classify(self, filepaths: list[str]) -> dict[str, dict[str, float]]:
+                return {fp: {"unsafe": 0.1} for fp in filepaths}
 
         monkeypatch.setattr("video.settings.NUDE_FILTER_MAX_THRESHOLD", 0.5)
         monkeypatch.setattr("video.nude_classifier", MockClassifier())
@@ -130,10 +130,10 @@ class TestCheckVideoNudityFilter:
     def test_returns_true_for_unsafe_video(self, short_video, monkeypatch):
         import video
 
-        # Mock the classifier to return unsafe values
+        # Mock the classifier to return unsafe values for batch classification
         class MockClassifier:
-            def classify(self, filepath):
-                return {filepath: {"unsafe": 0.9}}
+            def classify(self, filepaths: list[str]) -> dict[str, dict[str, float]]:
+                return {fp: {"unsafe": 0.9} for fp in filepaths}
 
         monkeypatch.setattr("video.settings.NUDE_FILTER_MAX_THRESHOLD", 0.5)
         monkeypatch.setattr("video.nude_classifier", MockClassifier())
@@ -144,18 +144,19 @@ class TestCheckVideoNudityFilter:
     def test_cleans_up_temp_frames(self, short_video, monkeypatch):
         import video
 
-        extracted_frames = []
+        extracted_frames: list[str] = []
 
         original_extract = video.extract_video_frames
 
-        def tracking_extract(filepath, interval):
+        def tracking_extract(filepath: str, interval: float) -> list[str]:
             frames = original_extract(filepath, interval)
             extracted_frames.extend(frames)
             return frames
 
+        # Mock the classifier to return safe values for batch classification
         class MockClassifier:
-            def classify(self, filepath):
-                return {filepath: {"unsafe": 0.1}}
+            def classify(self, filepaths: list[str]) -> dict[str, dict[str, float]]:
+                return {fp: {"unsafe": 0.1} for fp in filepaths}
 
         monkeypatch.setattr("video.extract_video_frames", tracking_extract)
         monkeypatch.setattr("video.settings.NUDE_FILTER_MAX_THRESHOLD", 0.5)

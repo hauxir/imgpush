@@ -106,6 +106,9 @@ async def upload_image(
     output_type = (settings.OUTPUT_TYPE or file_filetype or "").replace(".", "")
 
     if file_filetype == "mp4":
+        if not settings.ALLOW_VIDEO:
+            os.remove(tmp_filepath)
+            raise HTTPException(status_code=400, detail="Video uploads are not allowed")
         output_type = file_filetype
         if video.check_video_duration(tmp_filepath):
             os.remove(tmp_filepath)
@@ -137,6 +140,9 @@ def get_image(
     h: str = Query(default=""),
 ) -> FileResponse:
     path = os.path.join(settings.IMAGES_DIR, filename)
+
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="File not found")
 
     filename_without_extension, extension = os.path.splitext(filename)
 

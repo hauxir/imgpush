@@ -85,8 +85,10 @@ def check_video_nudity_filter(filepath: str) -> bool:
         return False
 
     try:
+        # Batch classify all frames at once for better performance
+        results = nude_classifier.classify(frame_paths)
         for frame_path in frame_paths:
-            unsafe_val = nude_classifier.classify(frame_path).get(frame_path, {}).get("unsafe", 0)
+            unsafe_val = results.get(frame_path, {}).get("unsafe", 0)
             if unsafe_val >= settings.NUDE_FILTER_MAX_THRESHOLD:
                 return True
         return False
