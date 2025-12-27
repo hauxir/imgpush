@@ -1,15 +1,39 @@
-FROM python:3.11-slim
+# Build stage
+FROM ubuntu:24.04 AS builder
 
 RUN apt-get update && \
-    apt-get install -y \
-    libmagickwand-dev curl \
-    nginx
+    apt-get install -y --no-install-recommends \
+    python3 \
+    python3-venv \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+# Install UV
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Copy project files
+COPY pyproject.toml uv.lock .python-version ./
+COPY app ./app
+
+# Install Python dependencies using UV
+RUN uv sync --frozen --no-cache --no-dev
+
+# Runtime stage
+FROM ubuntu:24.04
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    libmagickwand-dev \
+    nginx \
+    python3 \
+    python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy virtual environment from builder
+COPY --from=builder /.venv /.venv
+ENV PATH="/.venv/bin:$PATH"
+
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY ImageMagick-6/policy.xml /etc/ImageMagick-6/policy.xml
-
-RUN pip install -r requirements.txt
 
 COPY classifier_model.onnx /root/.NudeNet/classifier_model.onnx
 

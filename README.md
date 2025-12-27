@@ -118,6 +118,8 @@ livenessProbe:
 | VALID_SIZES  | Any size  | array of integers allowed in the h= and w= parameters, e.g "[100,200,300]". You should set this to protect against being bombarded with requests! |
 | NAME_STRATEGY  | "randomstr"  | `randomstr` for random 5 chars, `uuidv4` for UUIDv4 |
 | NUDE_FILTER_MAX_THRESHOLD  | None  | max unsafe value returned from nudenet library(https://github.com/notAI-tech/NudeNet), range is from 0-0.99. Blocks nudity from being uploaded. |
+| NUDE_FILTER_VIDEO_INTERVAL  | 1.0  | Float, seconds between frame samples when checking videos for nudity. Only applies when ALLOW_VIDEO and NUDE_FILTER_MAX_THRESHOLD are both set. |
+| MAX_VIDEO_DURATION  | 60.0  | Float, maximum video duration in seconds. Videos exceeding this limit are rejected. |
 
 Setting configuration variables is all set through env variables that get passed to the docker container.
 ### Example:

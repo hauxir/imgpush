@@ -1,12 +1,40 @@
+[build-system]
+requires = ["setuptools>=77.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["app"]
+
 [project]
 name = "imgpush"
 version = "1.0.0"
 description = "Image upload and processing service"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+    "filetype==1.2.0",
+    "Flask==3.1.2",
+    "flask-cors==5.0.0",
+    "Flask-Limiter==3.8.0",
+    "Wand==0.6.13",
+    "Werkzeug==3.1.3",
+    "gunicorn==23.0.0",
+    "timeout-decorator==0.5.0",
+    "nudenet==2.0.9",
+    "opencv-python-headless==4.10.0.84",
+    "jinja2==3.1.4",
+    "itsdangerous==2.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "basedpyright==1.31.3",
+    "ruff==0.8.6",
+    "pytest==8.3.4",
+    "types-pillow==10.2.0.20240822",
+]
 
 [tool.basedpyright]
-venvPath = "."
-venv = "venv"
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
 reportMissingImports = "error"
@@ -40,7 +68,7 @@ reportUnnecessaryComparison = "error"
 reportInconsistentConstructor = "error"
 reportMissingModuleSource = "warning"
 include = ["app"]
-exclude = ["**/node_modules", "**/__pycache__", "venv"]
+exclude = ["**/node_modules", "**/__pycache__", "venv", "**/tests"]
 stubPath = "stubs"
 
 [tool.ruff]

@@ -4,25 +4,24 @@ on:
   push:
 
 jobs:
-  lint-and-type-check:
+  ci:
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
 
-    - uses: actions/setup-python@v5
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v5
       with:
-        python-version: '3.12'
+        enable-cache: true
 
-    - name: Setup venv and install dependencies
-      run: |
-        python -m venv venv
-        source venv/bin/activate
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install -r requirements-dev.txt
+    - name: Set up Python
+      run: uv python install
 
-    - name: Run checks
+    - name: Install dependencies
+      run: uv sync --all-extras
+
+    - name: Run CI checks
       run: |
-        source venv/bin/activate
-        make check
+        chmod +x ci.sh
+        uv run ./ci.sh

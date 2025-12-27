@@ -13,7 +13,9 @@ NAME_STRATEGY: str = "randomstr"
 MAX_TMP_FILE_AGE: int = 5 * 60
 RESIZE_TIMEOUT: int = 5
 NUDE_FILTER_MAX_THRESHOLD: Optional[float] = None
+NUDE_FILTER_VIDEO_INTERVAL: float = 1.0
 ALLOW_VIDEO: bool = False
+MAX_VIDEO_DURATION: float = 60.0
 HIDE_UPLOAD_FORM: bool = False
 
 VALID_SIZES: list[int] = []

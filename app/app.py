@@ -5,6 +5,7 @@ from typing import Any, Union
 import filetype
 import imgpush
 import settings
+import video
 from flask import Flask, Response, jsonify, request, send_from_directory
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -86,6 +87,12 @@ def upload_image() -> Union[tuple[Any, int], Any]:
 
     if file_filetype == "mp4":
         output_type = file_filetype
+        if video.check_video_duration(tmp_filepath):
+            os.remove(tmp_filepath)
+            return jsonify(error=f"Video exceeds maximum duration of {settings.MAX_VIDEO_DURATION} seconds"), 400
+        if video.check_video_nudity_filter(tmp_filepath):
+            os.remove(tmp_filepath)
+            return jsonify(error="Nudity not allowed"), 400
     elif is_svg:
         output_type = "svg"
 
