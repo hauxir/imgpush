@@ -7,7 +7,8 @@ Minimalist Self-hosted Image Service for user submitted images in your app (e.g.
 - Automatic resizing to any size of your liking
 - Built-in Rate limiting
 - Built-in Allowed Origin whitelisting
-- Liveness API 
+- Liveness API
+- Delete API with API key authentication 
 
 ## Usage
 Uploading an image:
@@ -15,15 +16,27 @@ Uploading an image:
 > curl -F 'file=@/some/file.jpg' http://some.host
 {"filename":"somename.png"}
 ```
+Uploading an image with authentication (when `API_KEY` and `REQUIRE_API_KEY_FOR_UPLOAD` are set):
+```bash
+> curl -F 'file=@/some/file.jpg' -H "Authorization: Bearer your-api-key" http://some.host
+{"filename":"somename.png"}
+```
 Uploading an image by URL:
 ```bash
- curl -X POST -H "Content-Type: application/json" -d '{"url": "<SOME_URL>"}'  http://some.host
- ```
+> curl -X POST -H "Content-Type: application/json" -d '{"url": "<SOME_URL>"}'  http://some.host
+```
 Fetching a file in a specific size(e.g. 320x240):
 ```
 http://some.host/somename.png?w=320&h=240
 ```
 returns the image cropped to the desired size
+
+Deleting an image (requires `API_KEY` to be set):
+```bash
+> curl -X DELETE -H "Authorization: Bearer your-api-key" http://some.host/somename.png
+{"status":"deleted","cached_files_removed":"3"}
+```
+This removes the original image and all cached resized versions.
 
 ## Running
 imgpush requires docker
@@ -120,6 +133,10 @@ livenessProbe:
 | NUDE_FILTER_MAX_THRESHOLD  | None  | max unsafe value returned from nudenet library(https://github.com/notAI-tech/NudeNet), range is from 0-0.99. Blocks nudity from being uploaded. |
 | NUDE_FILTER_VIDEO_INTERVAL  | 1.0  | Float, seconds between frame samples when checking videos for nudity. Only applies when ALLOW_VIDEO and NUDE_FILTER_MAX_THRESHOLD are both set. |
 | MAX_VIDEO_DURATION  | 60.0  | Float, maximum video duration in seconds. Videos exceeding this limit are rejected. |
+| API_KEY  | None  | String, API key for authentication. Pass via `Authorization: Bearer <key>` header. |
+| REQUIRE_API_KEY_FOR_UPLOAD  | False  | Boolean, require API key for uploads. |
+| REQUIRE_API_KEY_FOR_DELETE  | True  | Boolean, require API key for deletes. Delete is disabled if API_KEY is not set. |
+| MAX_API_KEY_ATTEMPTS_PER_MINUTE  | 5  | Integer, max failed API key attempts per IP per minute. |
 
 Setting configuration variables is all set through env variables that get passed to the docker container.
 ### Example:

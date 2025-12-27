@@ -17,6 +17,10 @@ NUDE_FILTER_VIDEO_INTERVAL: float = 1.0
 ALLOW_VIDEO: bool = False
 MAX_VIDEO_DURATION: float = 60.0
 HIDE_UPLOAD_FORM: bool = False
+API_KEY: Optional[str] = None
+REQUIRE_API_KEY_FOR_UPLOAD: bool = False
+REQUIRE_API_KEY_FOR_DELETE: bool = True
+MAX_API_KEY_ATTEMPTS_PER_MINUTE: int = 5
 
 VALID_SIZES: list[int] = []
 

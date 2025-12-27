@@ -1,4 +1,5 @@
 import os
+import secrets
 import urllib.request
 from typing import Any, Optional
 
@@ -7,9 +8,12 @@ import filetype
 import imgpush
 import settings
 import video
-from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, Response
+from limits import parse as parse_limit
+from limits.storage import MemoryStorage
+from limits.strategies import FixedWindowRateLimiter
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -20,6 +24,23 @@ app = FastAPI(openapi_url=None)
 # Rate limiter
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
+
+# Rate limiter for failed API key attempts
+_auth_limiter = FixedWindowRateLimiter(MemoryStorage())
+_failed_auth_limit = parse_limit(f"{settings.MAX_API_KEY_ATTEMPTS_PER_MINUTE}/minute")
+
+
+def check_auth(request: Request, authorization: Optional[str]) -> None:
+    """Validate Bearer token authentication with rate limiting on failures."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=403, detail="Authorization required")
+
+    token = authorization[7:]
+    if settings.API_KEY is None or not secrets.compare_digest(token, settings.API_KEY):
+        client_ip = get_remote_address(request)
+        if not _auth_limiter.hit(_failed_auth_limit, client_ip):
+            raise HTTPException(status_code=429, detail="Too many failed attempts")
+        raise HTTPException(status_code=403, detail="Invalid API key")
 
 
 @app.exception_handler(RateLimitExceeded)
@@ -74,7 +95,11 @@ def liveness() -> Response:
 async def upload_image(
     request: Request,
     file: Optional[UploadFile] = File(default=None),
+    authorization: Optional[str] = Header(default=None),
 ) -> dict[str, str]:
+    if settings.API_KEY and settings.REQUIRE_API_KEY_FOR_UPLOAD:
+        check_auth(request, authorization)
+
     imgpush.clear_imagemagick_temp_files()
 
     is_svg = False
@@ -131,6 +156,27 @@ async def upload_image(
         raise HTTPException(status_code=400, detail=error)
 
     return {"filename": output_filename}
+
+
+@app.delete("/{filename:path}")
+def delete_image(
+    request: Request,
+    filename: str,
+    authorization: Optional[str] = Header(default=None),
+) -> dict[str, str]:
+    if not settings.API_KEY or not settings.REQUIRE_API_KEY_FOR_DELETE:
+        raise HTTPException(status_code=403, detail="Delete endpoint is disabled")
+
+    check_auth(request, authorization)
+
+    try:
+        cached_deleted = imgpush.delete_image(filename)
+    except imgpush.PathTraversalError:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return {"status": "deleted", "cached_files_removed": str(cached_deleted)}
 
 
 @app.get("/{filename:path}")

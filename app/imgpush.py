@@ -29,6 +29,10 @@ class CollisionError(Exception):
     pass
 
 
+class PathTraversalError(Exception):
+    pass
+
+
 def get_size_from_string(size: str) -> Union[int, str]:
     try:
         size_int = int(size)
@@ -140,6 +144,38 @@ def check_nudity_filter(filepath: str) -> bool:
         unsafe_val = nude_classifier.classify(filepath).get(filepath, {}).get("unsafe", 0)
         return unsafe_val >= settings.NUDE_FILTER_MAX_THRESHOLD
     return False
+
+
+def delete_image(filename: str) -> int:
+    """Delete an image and all its cached resized versions.
+
+    Returns the number of cached files deleted.
+    Raises PathTraversalError if filename attempts directory traversal.
+    """
+    # Sanitize filename to prevent path traversal
+    image_path = os.path.realpath(os.path.join(settings.IMAGES_DIR, filename))
+    images_dir = os.path.realpath(settings.IMAGES_DIR)
+
+    if not image_path.startswith(images_dir + os.sep):
+        raise PathTraversalError("Invalid filename")
+
+    if not os.path.isfile(image_path):
+        raise FileNotFoundError(f"Image {filename} not found")
+
+    os.remove(image_path)
+
+    # Also sanitize cache path - escape glob special chars in filename
+    safe_filename = os.path.basename(image_path)
+    filename_without_ext, extension = os.path.splitext(safe_filename)
+    cache_pattern = os.path.join(
+        settings.CACHE_DIR, f"{glob.escape(filename_without_ext)}_*x*{glob.escape(extension)}"
+    )
+    cached_files = glob.glob(cache_pattern)
+
+    for cached_file in cached_files:
+        os.remove(cached_file)
+
+    return len(cached_files)
 
 
 def process_image(tmp_filepath: str, output_path: str, output_type: str, is_svg: bool = False) -> Optional[str]:
