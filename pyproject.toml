@@ -14,7 +14,7 @@ license = "MIT"
 dependencies = [
     "fastapi==0.115.6",
     "uvicorn==0.34.0",
-    "python-multipart==0.0.20",
+    "python-multipart==0.0.22",
     "slowapi==0.1.9",
     "aiofiles==24.1.0",
     "filetype==1.2.0",
