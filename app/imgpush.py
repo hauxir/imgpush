@@ -1,4 +1,5 @@
 import datetime
+import gc
 import glob
 import os
 import random
@@ -77,7 +78,7 @@ def generate_random_filename() -> str:
     return ""
 
 
-def resize_image(path: str, width: Union[int, str], height: Union[int, str]) -> Image:
+def resize_image(path: str, width: Union[int, str], height: Union[int, str], output_path: str) -> None:
     _, extension = os.path.splitext(path)
 
     is_animated_webp = False
@@ -126,14 +127,15 @@ def resize_image(path: str, width: Union[int, str], height: Union[int, str]) -> 
         img.sample(width_int, height_int)
 
         if is_animated_webp:
-            converted = img.convert("webp")
-            img.close()
-            return converted
-
-        return img
-    except Exception:
+            with img.convert("webp") as converted:
+                converted.strip()
+                converted.save(filename=output_path)
+        else:
+            img.strip()
+            img.save(filename=output_path)
+    finally:
         img.close()
-        raise
+        gc.collect()
 
 
 def check_nudity_filter(filepath: str) -> bool:
@@ -207,5 +209,6 @@ def process_image(tmp_filepath: str, output_path: str, output_type: str, is_svg:
     finally:
         if os.path.exists(tmp_filepath):
             os.remove(tmp_filepath)
+        gc.collect()
 
     return error

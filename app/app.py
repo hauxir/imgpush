@@ -214,12 +214,7 @@ def get_image(
 
         if not os.path.isfile(resized_path) and (width or height):
             imgpush.clear_imagemagick_temp_files()
-            resized_image = imgpush.resize_image(path, width, height)
-            try:
-                resized_image.strip()
-                resized_image.save(filename=resized_path)
-            finally:
-                resized_image.close()
+            imgpush.resize_image(path, width, height, resized_path)
         return FileResponse(resized_path, headers={"X-Sendfile": resized_path})
 
     return FileResponse(path, headers={"X-Sendfile": path})
