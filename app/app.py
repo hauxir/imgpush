@@ -136,6 +136,8 @@ async def upload_image(
                 remove_bg = body.get("remove_bg")
             if autocrop is None:
                 autocrop = body.get("autocrop")
+        except HTTPException:
+            raise
         except Exception:
             raise HTTPException(status_code=400, detail="File is missing!")
 

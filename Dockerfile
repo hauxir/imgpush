@@ -15,7 +15,7 @@ COPY pyproject.toml uv.lock .python-version ./
 COPY app ./app
 
 # Install Python dependencies using UV
-RUN uv sync --frozen --no-cache --no-dev
+RUN uv sync --frozen --no-cache --no-dev --extra rembg
 
 # Runtime stage
 FROM ubuntu:24.04

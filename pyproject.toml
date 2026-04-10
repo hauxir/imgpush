@@ -22,10 +22,12 @@ dependencies = [
     "timeout-decorator==0.5.0",
     "nudenet==2.0.9",
     "opencv-python-headless==4.10.0.84",
-    "rembg[cpu]==2.0.62",
 ]
 
 [project.optional-dependencies]
+rembg = [
+    "rembg[cpu]==2.0.62",
+]
 dev = [
     "basedpyright==1.31.3",
     "ruff==0.8.6",
