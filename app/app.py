@@ -147,7 +147,7 @@ async def upload_image(
     file_filetype = filetype.guess_extension(tmp_filepath)
     output_type = (settings.OUTPUT_TYPE or file_filetype or "").replace(".", "")
 
-    if should_remove_bg and not is_svg:
+    if should_remove_bg and not is_svg and output_type not in ("png", "webp"):
         output_type = "png"
 
     if file_filetype == "mp4":
