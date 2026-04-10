@@ -1,6 +1,7 @@
 import datetime
 import gc
 import glob
+import logging
 import os
 import random
 import shutil
@@ -14,10 +15,13 @@ from PIL import Image as PILImage
 from wand.exceptions import MissingDelegateError
 from wand.image import Image
 
+logger = logging.getLogger(__name__)
+
 if settings.ALLOW_REMOVE_BG:
     try:
         from rembg import remove as rembg_remove
     except ImportError:
+        logger.warning("ALLOW_REMOVE_BG is enabled but rembg is not installed; background removal will be skipped")
         rembg_remove = None
 else:
     rembg_remove = None
@@ -185,12 +189,8 @@ def delete_image(filename: str) -> int:
     return len(cached_files)
 
 
-def remove_background(filepath: str, autocrop: bool = False, autocrop_threshold: int = 10) -> None:
-    """Remove background from image using rembg, optionally autocrop to content bounds.
-
-    autocrop_threshold: alpha values at or below this are treated as transparent
-    when computing the crop bounding box (default 10).
-    """
+def remove_background(filepath: str, autocrop: bool = False) -> None:
+    """Remove background from image using rembg, optionally autocrop to content bounds."""
     if rembg_remove is None:
         return
 
@@ -201,7 +201,8 @@ def remove_background(filepath: str, autocrop: bool = False, autocrop_threshold:
 
     try:
         if autocrop:
-            alpha = result.split()[-1].point(lambda v: 0 if v <= autocrop_threshold else 255)  # type: ignore[reportOperatorIssue]
+            result = result.convert("RGBA")
+            alpha = result.split()[3].point(lambda v: 0 if v <= 10 else 255)
             bbox = alpha.getbbox()
             if bbox:
                 result = result.crop(bbox)

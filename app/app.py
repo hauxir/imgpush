@@ -154,10 +154,10 @@ async def upload_image(
     if should_remove_bg:
         try:
             imgpush.remove_background(tmp_filepath, autocrop=should_autocrop)
-        except Exception:
+        except (OSError, TypeError, ValueError) as exc:
             if os.path.exists(tmp_filepath):
                 os.remove(tmp_filepath)
-            raise HTTPException(status_code=400, detail="Background removal failed")
+            raise HTTPException(status_code=400, detail=f"Background removal failed: {exc}")
 
     if should_remove_bg and not settings.OUTPUT_TYPE and output_type not in ("png", "webp"):
         output_type = "png"
