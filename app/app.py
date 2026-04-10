@@ -148,8 +148,8 @@ async def upload_image(
     file_filetype = filetype.guess_extension(tmp_filepath)
     output_type = (settings.OUTPUT_TYPE or file_filetype or "").replace(".", "")
 
-    should_remove_bg = remove_bg == "true" and settings.ALLOW_REMOVE_BG and not is_svg and file_filetype not in ("mp4",)
-    should_autocrop = autocrop == "true"
+    should_remove_bg = remove_bg in ("true", True) and settings.ALLOW_REMOVE_BG and not is_svg and file_filetype not in ("mp4",)
+    should_autocrop = autocrop in ("true", True)
 
     if should_remove_bg:
         imgpush.remove_background(tmp_filepath, autocrop=should_autocrop)
