@@ -8,7 +8,7 @@ import filetype
 import imgpush
 import settings
 import video
-from fastapi import FastAPI, File, Header, HTTPException, Query, Request, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from limits import parse as parse_limit
@@ -83,6 +83,10 @@ def root() -> str:
     return """
 <form action="/" method="post" enctype="multipart/form-data">
     <input type="file" name="file" id="file">
+    <br>
+    <label><input type="checkbox" name="remove_bg" value="true"> Remove background</label>
+    <label><input type="checkbox" name="autocrop" value="true"> Autocrop</label>
+    <br>
     <input type="submit" value="Upload" name="submit">
 </form>
 """
@@ -100,6 +104,8 @@ def liveness() -> dict[str, str]:
 async def upload_image(
     request: Request,
     file: Optional[UploadFile] = File(default=None),
+    remove_bg: Optional[str] = Form(default=None),
+    autocrop: Optional[str] = Form(default=None),
     authorization: Optional[str] = Header(default=None),
 ) -> dict[str, str]:
     if settings.API_KEY and settings.REQUIRE_API_KEY_FOR_UPLOAD:
@@ -125,6 +131,13 @@ async def upload_image(
                 urllib.request.urlretrieve(body["url"], tmp_filepath)
             else:
                 raise HTTPException(status_code=400, detail="File is missing!")
+            # Pick up remove_bg/autocrop from JSON body
+            if remove_bg is None:
+                remove_bg = body.get("remove_bg")
+            if autocrop is None:
+                autocrop = body.get("autocrop")
+        except HTTPException:
+            raise
         except Exception:
             raise HTTPException(status_code=400, detail="File is missing!")
 
@@ -134,6 +147,15 @@ async def upload_image(
 
     file_filetype = filetype.guess_extension(tmp_filepath)
     output_type = (settings.OUTPUT_TYPE or file_filetype or "").replace(".", "")
+
+    should_remove_bg = remove_bg in ("true", True) and settings.ALLOW_REMOVE_BG and not is_svg and file_filetype not in ("mp4",)
+    should_autocrop = autocrop in ("true", True)
+
+    if should_remove_bg:
+        imgpush.remove_background(tmp_filepath, autocrop=should_autocrop)
+
+    if should_remove_bg and not settings.OUTPUT_TYPE and output_type not in ("png", "webp"):
+        output_type = "png"
 
     if file_filetype == "mp4":
         if not settings.ALLOW_VIDEO:

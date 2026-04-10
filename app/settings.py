@@ -22,6 +22,7 @@ API_KEY: Optional[str] = None
 REQUIRE_API_KEY_FOR_UPLOAD: bool = False
 REQUIRE_API_KEY_FOR_DELETE: bool = True
 MAX_API_KEY_ATTEMPTS_PER_MINUTE: int = 5
+ALLOW_REMOVE_BG: bool = False
 
 VALID_SIZES: list[int] = []
 

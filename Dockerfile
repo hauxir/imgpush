@@ -15,7 +15,7 @@ COPY pyproject.toml uv.lock .python-version ./
 COPY app ./app
 
 # Install Python dependencies using UV
-RUN uv sync --frozen --no-cache --no-dev
+RUN uv sync --frozen --no-cache --no-dev --extra rembg
 
 # Runtime stage
 FROM ubuntu:24.04
@@ -36,6 +36,9 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY ImageMagick-6/policy.xml /etc/ImageMagick-6/policy.xml
 
 COPY classifier_model.onnx /root/.NudeNet/classifier_model.onnx
+
+# Pre-download rembg u2net model so it doesn't download at runtime
+RUN /.venv/bin/python -c "from rembg import new_session; new_session('u2net')"
 
 RUN mkdir /images
 RUN mkdir /cache
