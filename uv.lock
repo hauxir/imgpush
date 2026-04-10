@@ -283,7 +283,6 @@ dependencies = [
     { name = "nudenet" },
     { name = "opencv-python-headless" },
     { name = "python-multipart" },
-    { name = "rembg", extra = ["cpu"] },
     { name = "slowapi" },
     { name = "timeout-decorator" },
     { name = "uvicorn" },
