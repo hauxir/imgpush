@@ -15,7 +15,10 @@ from wand.exceptions import MissingDelegateError
 from wand.image import Image
 
 if settings.ALLOW_REMOVE_BG:
-    from rembg import remove as rembg_remove
+    try:
+        from rembg import remove as rembg_remove
+    except ImportError:
+        rembg_remove = None
 else:
     rembg_remove = None
 
