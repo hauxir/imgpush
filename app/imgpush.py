@@ -192,7 +192,7 @@ def delete_image(filename: str) -> int:
 def remove_background(filepath: str, autocrop: bool = False) -> None:
     """Remove background from image using rembg, optionally autocrop to content bounds."""
     if rembg_remove is None:
-        return
+        raise RuntimeError("Background removal requested but rembg is not installed")
 
     with PILImage.open(filepath) as img:
         result = rembg_remove(img, force_return_bytes=False)
