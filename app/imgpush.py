@@ -1,7 +1,6 @@
 import datetime
 import gc
 import glob
-import logging
 import os
 import random
 import shutil
@@ -15,14 +14,11 @@ from PIL import Image as PILImage
 from wand.exceptions import MissingDelegateError
 from wand.image import Image
 
-logger = logging.getLogger(__name__)
-
 if settings.ALLOW_REMOVE_BG:
     try:
         from rembg import remove as rembg_remove
     except ImportError:
-        logger.warning("ALLOW_REMOVE_BG is enabled but rembg is not installed; background removal will be skipped")
-        rembg_remove = None
+        raise ImportError("ALLOW_REMOVE_BG is enabled but rembg is not installed. Install with: pip install rembg[cpu]")
 else:
     rembg_remove = None
 
@@ -32,6 +28,9 @@ if settings.NUDE_FILTER_MAX_THRESHOLD:
     nude_classifier = NudeClassifier()
 else:
     nude_classifier = None
+
+
+AUTOCROP_ALPHA_THRESHOLD = 10
 
 
 class InvalidSizeError(Exception):
@@ -191,9 +190,6 @@ def delete_image(filename: str) -> int:
 
 def remove_background(filepath: str, autocrop: bool = False) -> None:
     """Remove background from image using rembg, optionally autocrop to content bounds."""
-    if rembg_remove is None:
-        raise RuntimeError("Background removal requested but rembg is not installed")
-
     with PILImage.open(filepath) as img:
         result = rembg_remove(img, force_return_bytes=False)
     if not isinstance(result, PILImage.Image):
@@ -202,7 +198,7 @@ def remove_background(filepath: str, autocrop: bool = False) -> None:
     try:
         if autocrop:
             result = result.convert("RGBA")
-            alpha = result.split()[3].point(lambda v: 0 if v <= 10 else 255)
+            alpha = result.split()[3].point(lambda v: 0 if v <= AUTOCROP_ALPHA_THRESHOLD else 255)
             bbox = alpha.getbbox()
             if bbox:
                 result = result.crop(bbox)
