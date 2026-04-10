@@ -8,7 +8,7 @@ import filetype
 import imgpush
 import settings
 import video
-from fastapi import FastAPI, File, Header, HTTPException, Query, Request, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from limits import parse as parse_limit
@@ -83,6 +83,10 @@ def root() -> str:
     return """
 <form action="/" method="post" enctype="multipart/form-data">
     <input type="file" name="file" id="file">
+    <br>
+    <label><input type="checkbox" name="remove_bg" value="true"> Remove background</label>
+    <label><input type="checkbox" name="autocrop" value="true"> Autocrop</label>
+    <br>
     <input type="submit" value="Upload" name="submit">
 </form>
 """
@@ -100,6 +104,8 @@ def liveness() -> dict[str, str]:
 async def upload_image(
     request: Request,
     file: Optional[UploadFile] = File(default=None),
+    remove_bg: Optional[str] = Form(default=None),
+    autocrop: Optional[str] = Form(default=None),
     authorization: Optional[str] = Header(default=None),
 ) -> dict[str, str]:
     if settings.API_KEY and settings.REQUIRE_API_KEY_FOR_UPLOAD:
@@ -132,8 +138,17 @@ async def upload_image(
         os.remove(tmp_filepath)
         raise HTTPException(status_code=400, detail="Nudity not allowed")
 
+    should_remove_bg = remove_bg == "true" and settings.ALLOW_REMOVE_BG
+    should_autocrop = autocrop == "true"
+
+    if should_remove_bg and not is_svg:
+        imgpush.remove_background(tmp_filepath, autocrop=should_autocrop)
+
     file_filetype = filetype.guess_extension(tmp_filepath)
     output_type = (settings.OUTPUT_TYPE or file_filetype or "").replace(".", "")
+
+    if should_remove_bg and not is_svg:
+        output_type = "png"
 
     if file_filetype == "mp4":
         if not settings.ALLOW_VIDEO:

@@ -37,6 +37,9 @@ COPY ImageMagick-6/policy.xml /etc/ImageMagick-6/policy.xml
 
 COPY classifier_model.onnx /root/.NudeNet/classifier_model.onnx
 
+# Pre-download rembg u2net model so it doesn't download at runtime
+RUN /.venv/bin/python -c "from rembg import new_session; new_session('u2net')"
+
 RUN mkdir /images
 RUN mkdir /cache
 

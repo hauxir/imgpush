@@ -10,8 +10,14 @@ import uuid
 from typing import Optional, Union
 
 import settings
+from PIL import Image as PILImage
 from wand.exceptions import MissingDelegateError
 from wand.image import Image
+
+if settings.ALLOW_REMOVE_BG:
+    from rembg import remove as rembg_remove
+else:
+    rembg_remove = None
 
 if settings.NUDE_FILTER_MAX_THRESHOLD:
     from nudenet import NudeClassifier
@@ -174,6 +180,23 @@ def delete_image(filename: str) -> int:
         os.remove(cached_file)
 
     return len(cached_files)
+
+
+def remove_background(filepath: str, autocrop: bool = False) -> None:
+    """Remove background from image using rembg, optionally autocrop to content bounds."""
+    if rembg_remove is None:
+        return
+
+    img = PILImage.open(filepath)
+    result = rembg_remove(img)
+    assert isinstance(result, PILImage.Image)
+
+    if autocrop:
+        bbox = result.getbbox()
+        if bbox:
+            result = result.crop(bbox)
+
+    result.save(filepath, format="PNG")
 
 
 def process_image(tmp_filepath: str, output_path: str, output_type: str, is_svg: bool = False) -> Optional[str]:
