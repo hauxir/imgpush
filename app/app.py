@@ -138,16 +138,16 @@ async def upload_image(
         os.remove(tmp_filepath)
         raise HTTPException(status_code=400, detail="Nudity not allowed")
 
-    should_remove_bg = remove_bg == "true" and settings.ALLOW_REMOVE_BG
-    should_autocrop = autocrop == "true"
-
-    if should_remove_bg and not is_svg:
-        imgpush.remove_background(tmp_filepath, autocrop=should_autocrop)
-
     file_filetype = filetype.guess_extension(tmp_filepath)
     output_type = (settings.OUTPUT_TYPE or file_filetype or "").replace(".", "")
 
-    if should_remove_bg and not is_svg and not settings.OUTPUT_TYPE and output_type not in ("png", "webp"):
+    should_remove_bg = remove_bg == "true" and settings.ALLOW_REMOVE_BG and not is_svg and file_filetype not in ("mp4",)
+    should_autocrop = autocrop == "true"
+
+    if should_remove_bg:
+        imgpush.remove_background(tmp_filepath, autocrop=should_autocrop)
+
+    if should_remove_bg and not settings.OUTPUT_TYPE and output_type not in ("png", "webp"):
         output_type = "png"
 
     if file_filetype == "mp4":

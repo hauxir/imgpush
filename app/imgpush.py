@@ -187,8 +187,8 @@ def remove_background(filepath: str, autocrop: bool = False) -> None:
     if rembg_remove is None:
         return
 
-    img = PILImage.open(filepath)
-    result = rembg_remove(img)
+    with PILImage.open(filepath) as img:
+        result = rembg_remove(img)
     assert isinstance(result, PILImage.Image)
 
     if autocrop:
@@ -197,6 +197,7 @@ def remove_background(filepath: str, autocrop: bool = False) -> None:
             result = result.crop(bbox)
 
     result.save(filepath, format="PNG")
+    result.close()
 
 
 def process_image(tmp_filepath: str, output_path: str, output_type: str, is_svg: bool = False) -> Optional[str]:
