@@ -22,6 +22,16 @@ if settings.ALLOW_REMOVE_BG:
 else:
     rembg_remove = None
 
+if settings.ALLOW_UPSCALE:
+    import onnxruntime as _ort
+
+    _UPSCALE_MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "realesrgan_x4plus.onnx")
+    if not os.path.isfile(_UPSCALE_MODEL_PATH):
+        raise FileNotFoundError(f"ALLOW_UPSCALE is enabled but model not found at {_UPSCALE_MODEL_PATH}")
+    _upscale_session = _ort.InferenceSession(_UPSCALE_MODEL_PATH)
+else:
+    _upscale_session = None
+
 if settings.NUDE_FILTER_MAX_THRESHOLD:
     from nudenet import NudeClassifier
 
@@ -207,6 +217,33 @@ def remove_background(filepath: str, autocrop: bool = False) -> None:
             if bbox:
                 result = result.crop(bbox)
 
+        result.save(filepath, format="PNG")
+    finally:
+        result.close()
+
+
+def upscale_image(filepath: str) -> None:
+    """Upscale image 4x using Real-ESRGAN ONNX model."""
+    assert _upscale_session is not None  # guaranteed by startup check
+    import numpy as np
+
+    with PILImage.open(filepath) as img:
+        pixel_count = img.width * img.height
+        if pixel_count > settings.UPSCALE_MAX_PIXELS:
+            raise ValueError(
+                f"Image too large to upscale ({img.width}x{img.height} = {pixel_count} pixels, max {settings.UPSCALE_MAX_PIXELS})"
+            )
+        rgb = img.convert("RGB")
+
+    img_np = np.array(rgb, dtype=np.float32) / 255.0
+    rgb.close()
+    img_tensor = img_np.transpose(2, 0, 1)[np.newaxis, ...]
+
+    output = _upscale_session.run(None, {"input": img_tensor})[0]
+    output_np = output.squeeze(0).transpose(1, 2, 0).clip(0, 1)
+    result = PILImage.fromarray((output_np * 255).astype(np.uint8))
+
+    try:
         result.save(filepath, format="PNG")
     finally:
         result.close()
