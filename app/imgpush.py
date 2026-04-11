@@ -190,6 +190,7 @@ def delete_image(filename: str) -> int:
 
 def remove_background(filepath: str, autocrop: bool = False) -> None:
     """Remove background from image using rembg, optionally autocrop to content bounds."""
+    assert rembg_remove is not None  # guaranteed by startup check
     with PILImage.open(filepath) as img:
         result = rembg_remove(img, force_return_bytes=False)
     if not isinstance(result, PILImage.Image):
@@ -198,7 +199,7 @@ def remove_background(filepath: str, autocrop: bool = False) -> None:
     try:
         if autocrop:
             result = result.convert("RGBA")
-            alpha = result.split()[3].point(lambda v: 0 if v <= AUTOCROP_ALPHA_THRESHOLD else 255)
+            alpha = result.split()[3].point(lambda v: 0 if v <= AUTOCROP_ALPHA_THRESHOLD else 255)  # type: ignore[reportUnknownLambdaType]
             bbox = alpha.getbbox()
             if bbox:
                 result = result.crop(bbox)
