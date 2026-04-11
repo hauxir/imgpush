@@ -15,7 +15,10 @@ from wand.exceptions import MissingDelegateError
 from wand.image import Image
 
 if settings.ALLOW_REMOVE_BG:
-    from rembg import remove as rembg_remove
+    try:
+        from rembg import remove as rembg_remove
+    except ImportError:
+        raise ImportError("ALLOW_REMOVE_BG is enabled but rembg is not installed. Install with: pip install rembg[cpu]")
 else:
     rembg_remove = None
 
@@ -25,6 +28,9 @@ if settings.NUDE_FILTER_MAX_THRESHOLD:
     nude_classifier = NudeClassifier()
 else:
     nude_classifier = None
+
+
+AUTOCROP_ALPHA_THRESHOLD = 10
 
 
 class InvalidSizeError(Exception):
@@ -184,9 +190,7 @@ def delete_image(filename: str) -> int:
 
 def remove_background(filepath: str, autocrop: bool = False) -> None:
     """Remove background from image using rembg, optionally autocrop to content bounds."""
-    if rembg_remove is None:
-        return
-
+    assert rembg_remove is not None  # guaranteed by startup check
     with PILImage.open(filepath) as img:
         result = rembg_remove(img, force_return_bytes=False)
     if not isinstance(result, PILImage.Image):
@@ -194,7 +198,9 @@ def remove_background(filepath: str, autocrop: bool = False) -> None:
 
     try:
         if autocrop:
-            bbox = result.getbbox()
+            result = result.convert("RGBA")
+            alpha = result.split()[3].point(lambda v: 0 if v <= AUTOCROP_ALPHA_THRESHOLD else 255)  # type: ignore[reportUnknownLambdaType]
+            bbox = alpha.getbbox()
             if bbox:
                 result = result.crop(bbox)
 
