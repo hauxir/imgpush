@@ -49,6 +49,11 @@ SHARD_SEGMENT_LEN = 2
 SHARD_DEPTH = 2
 
 
+def _is_safe_filename(filename: str) -> bool:
+    """Reject anything that isn't a plain basename (blocks path traversal)."""
+    return bool(filename) and filename not in (".", "..") and filename == os.path.basename(filename)
+
+
 def _shard_segments(filename: str) -> list[str]:
     key = filename[: SHARD_SEGMENT_LEN * SHARD_DEPTH]
     return [key[i * SHARD_SEGMENT_LEN : (i + 1) * SHARD_SEGMENT_LEN] for i in range(SHARD_DEPTH)]
@@ -56,6 +61,8 @@ def _shard_segments(filename: str) -> list[str]:
 
 def resolve_path(base_dir: str, filename: str, create_parents: bool = False) -> str:
     """Map a filename to its on-disk path under base_dir, respecting SHARD_STORAGE."""
+    if not _is_safe_filename(filename):
+        raise PathTraversalError("Invalid filename")
     if not settings.SHARD_STORAGE:
         return os.path.join(base_dir, filename)
     path = os.path.join(base_dir, *_shard_segments(filename), filename)
@@ -68,7 +75,10 @@ def resolve_existing_path(base_dir: str, filename: str) -> Optional[str]:
     """Return the actual path of filename under base_dir, whether flat or sharded.
 
     Supports mixed-era installs where some files exist flat and others sharded.
+    Returns None for invalid filenames (path traversal attempts) or misses.
     """
+    if not _is_safe_filename(filename):
+        return None
     flat = os.path.join(base_dir, filename)
     if os.path.isfile(flat):
         return flat
@@ -215,9 +225,12 @@ def delete_image(filename: str) -> int:
     # Also sanitize cache path - escape glob special chars in filename
     safe_filename = os.path.basename(image_path)
     filename_without_ext, extension = os.path.splitext(safe_filename)
-    cache_dir = os.path.dirname(resolve_path(settings.CACHE_DIR, safe_filename))
-    cache_pattern = os.path.join(cache_dir, f"{glob.escape(filename_without_ext)}_*x*{glob.escape(extension)}")
-    cached_files = glob.glob(cache_pattern)
+    variant_suffix = f"{glob.escape(filename_without_ext)}_*x*{glob.escape(extension)}"
+    sharded_cache_dir = os.path.dirname(resolve_path(settings.CACHE_DIR, safe_filename))
+    cache_patterns = [os.path.join(settings.CACHE_DIR, variant_suffix)]
+    if sharded_cache_dir != settings.CACHE_DIR.rstrip(os.sep):
+        cache_patterns.append(os.path.join(sharded_cache_dir, variant_suffix))
+    cached_files = [p for pattern in cache_patterns for p in glob.glob(pattern)]
 
     for cached_file in cached_files:
         os.remove(cached_file)

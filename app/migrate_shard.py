@@ -23,9 +23,10 @@ def shard_segments(filename: str) -> list[str]:
     return [key[i * SHARD_SEGMENT_LEN : (i + 1) * SHARD_SEGMENT_LEN] for i in range(SHARD_DEPTH)]
 
 
-def migrate(base_dir: str, dry_run: bool) -> tuple[int, int]:
+def migrate(base_dir: str, dry_run: bool) -> tuple[int, int, int]:
     moved = 0
     skipped = 0
+    failed = 0
     with os.scandir(base_dir) as it:
         for entry in it:
             if not entry.is_file(follow_symlinks=False):
@@ -38,13 +39,23 @@ def migrate(base_dir: str, dry_run: bool) -> tuple[int, int]:
                 continue
             target_dir = os.path.join(base_dir, *segments)
             target = os.path.join(target_dir, entry.name)
+            if os.path.exists(target):
+                print(f"skip (target exists): {entry.path}", file=sys.stderr)
+                skipped += 1
+                continue
             if dry_run:
                 print(f"would move {entry.path} -> {target}")
-            else:
+                moved += 1
+                continue
+            try:
                 os.makedirs(target_dir, exist_ok=True)
                 os.rename(entry.path, target)
+            except OSError as exc:
+                print(f"failed {entry.path} -> {target}: {exc}", file=sys.stderr)
+                failed += 1
+                continue
             moved += 1
-    return moved, skipped
+    return moved, skipped, failed
 
 
 def main() -> None:
@@ -57,9 +68,11 @@ def main() -> None:
         print(f"not a directory: {args.base_dir}", file=sys.stderr)
         sys.exit(1)
 
-    moved, skipped = migrate(args.base_dir, args.dry_run)
+    moved, skipped, failed = migrate(args.base_dir, args.dry_run)
     verb = "would move" if args.dry_run else "moved"
-    print(f"{verb} {moved} file(s), skipped {skipped}")
+    print(f"{verb} {moved} file(s), skipped {skipped}, failed {failed}")
+    if failed:
+        sys.exit(2)
 
 
 if __name__ == "__main__":
