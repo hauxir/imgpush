@@ -1,3 +1,4 @@
+import json
 import os
 import secrets
 import urllib.request
@@ -207,12 +208,12 @@ def list_files(
                     continue
                 if prefix and not entry.name.startswith(prefix):
                     continue
-                yield entry.name + "\n"
+                yield json.dumps(entry.name) + "\n"
                 count += 1
                 if limit and count >= limit:
                     return
 
-    return StreamingResponse(iter_names(), media_type="text/plain")
+    return StreamingResponse(iter_names(), media_type="application/x-ndjson")
 
 
 @app.delete("/{filename:path}")
