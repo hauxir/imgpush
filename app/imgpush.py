@@ -45,6 +45,40 @@ class PathTraversalError(Exception):
     pass
 
 
+SHARD_SEGMENT_LEN = 2
+SHARD_DEPTH = 2
+
+
+def _shard_segments(filename: str) -> list[str]:
+    key = filename[: SHARD_SEGMENT_LEN * SHARD_DEPTH]
+    return [key[i * SHARD_SEGMENT_LEN : (i + 1) * SHARD_SEGMENT_LEN] for i in range(SHARD_DEPTH)]
+
+
+def resolve_path(base_dir: str, filename: str, create_parents: bool = False) -> str:
+    """Map a filename to its on-disk path under base_dir, respecting SHARD_STORAGE."""
+    if not settings.SHARD_STORAGE:
+        return os.path.join(base_dir, filename)
+    path = os.path.join(base_dir, *_shard_segments(filename), filename)
+    if create_parents:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+    return path
+
+
+def resolve_existing_path(base_dir: str, filename: str) -> Optional[str]:
+    """Return the actual path of filename under base_dir, whether flat or sharded.
+
+    Supports mixed-era installs where some files exist flat and others sharded.
+    """
+    flat = os.path.join(base_dir, filename)
+    if os.path.isfile(flat):
+        return flat
+    if settings.SHARD_STORAGE:
+        sharded = os.path.join(base_dir, *_shard_segments(filename), filename)
+        if os.path.isfile(sharded):
+            return sharded
+    return None
+
+
 def get_size_from_string(size: str) -> Union[int, str]:
     try:
         size_int = int(size)
@@ -76,7 +110,8 @@ def clear_imagemagick_temp_files() -> None:
 def get_random_filename() -> str:
     random_string = generate_random_filename()
     if settings.NAME_STRATEGY == "randomstr":
-        file_exists = len(glob.glob(f"{settings.IMAGES_DIR}/{random_string}.*")) > 0
+        search_dir = os.path.dirname(resolve_path(settings.IMAGES_DIR, random_string + ".x"))
+        file_exists = len(glob.glob(f"{search_dir}/{random_string}.*")) > 0
         if file_exists:
             return get_random_filename()
     return random_string
@@ -165,7 +200,8 @@ def delete_image(filename: str) -> int:
     Raises PathTraversalError if filename attempts directory traversal.
     """
     # Sanitize filename to prevent path traversal
-    image_path = os.path.realpath(os.path.join(settings.IMAGES_DIR, filename))
+    candidate = resolve_existing_path(settings.IMAGES_DIR, filename) or os.path.join(settings.IMAGES_DIR, filename)
+    image_path = os.path.realpath(candidate)
     images_dir = os.path.realpath(settings.IMAGES_DIR)
 
     if not image_path.startswith(images_dir + os.sep):
@@ -179,7 +215,8 @@ def delete_image(filename: str) -> int:
     # Also sanitize cache path - escape glob special chars in filename
     safe_filename = os.path.basename(image_path)
     filename_without_ext, extension = os.path.splitext(safe_filename)
-    cache_pattern = os.path.join(settings.CACHE_DIR, f"{glob.escape(filename_without_ext)}_*x*{glob.escape(extension)}")
+    cache_dir = os.path.dirname(resolve_path(settings.CACHE_DIR, safe_filename))
+    cache_pattern = os.path.join(cache_dir, f"{glob.escape(filename_without_ext)}_*x*{glob.escape(extension)}")
     cached_files = glob.glob(cache_pattern)
 
     for cached_file in cached_files:

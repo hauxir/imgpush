@@ -24,6 +24,12 @@ REQUIRE_API_KEY_FOR_DELETE: bool = True
 MAX_API_KEY_ATTEMPTS_PER_MINUTE: int = 5
 ALLOW_REMOVE_BG: bool = False
 
+# When True, files are stored under 2-level 2-char subdirectories derived
+# from the filename prefix (e.g. /images/ab/cd/abcd...jpg) to keep each
+# directory small at TB scale. Best with NAME_STRATEGY=uuidv4; with
+# randomstr the 5-char namespace is small, so bucket density will be low.
+SHARD_STORAGE: bool = False
+
 VALID_SIZES: list[int] = []
 
 MAX_SIZE_MB: int = 16
