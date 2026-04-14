@@ -180,7 +180,7 @@ async def upload_image(
         output_type = "svg"
 
     output_filename = os.path.basename(tmp_filepath) + f".{output_type}"
-    output_path = os.path.join(settings.IMAGES_DIR, output_filename)
+    output_path = imgpush.resolve_path(settings.IMAGES_DIR, output_filename, create_parents=True)
 
     error = imgpush.process_image(tmp_filepath, output_path, output_type, is_svg)
 
@@ -217,14 +217,14 @@ def get_image(
     w: str = Query(default=""),
     h: str = Query(default=""),
 ) -> FileResponse:
-    path = os.path.join(settings.IMAGES_DIR, filename)
+    path = imgpush.resolve_existing_path(settings.IMAGES_DIR, filename)
 
-    if not os.path.isfile(path):
+    if path is None:
         raise HTTPException(status_code=404, detail="File not found")
 
     filename_without_extension, extension = os.path.splitext(filename)
 
-    if (w or h) and os.path.isfile(path) and extension not in (".mp4", ".svg"):
+    if (w or h) and extension not in (".mp4", ".svg"):
         try:
             width = imgpush.get_size_from_string(w)
             height = imgpush.get_size_from_string(h)
@@ -237,7 +237,7 @@ def get_image(
         dimensions = f"{width}x{height}"
         resized_filename = filename_without_extension + f"_{dimensions}{extension}"
 
-        resized_path = os.path.join(settings.CACHE_DIR, resized_filename)
+        resized_path = imgpush.resolve_path(settings.CACHE_DIR, resized_filename, create_parents=True)
 
         if not os.path.isfile(resized_path) and (width or height):
             imgpush.clear_imagemagick_temp_files()
