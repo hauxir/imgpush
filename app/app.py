@@ -10,7 +10,7 @@ import settings
 import video
 from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from limits import parse as parse_limit
 from limits.storage import MemoryStorage
 from limits.strategies import FixedWindowRateLimiter
@@ -188,6 +188,31 @@ async def upload_image(
         raise HTTPException(status_code=400, detail=error)
 
     return {"filename": output_filename}
+
+
+@app.get("/admin/files")
+def list_files(
+    request: Request,
+    prefix: str = Query(default=""),
+    limit: int = Query(default=0, ge=0),
+    authorization: Optional[str] = Header(default=None),
+) -> StreamingResponse:
+    check_auth(request, authorization)
+
+    def iter_names() -> Any:
+        count = 0
+        with os.scandir(settings.IMAGES_DIR) as it:
+            for entry in it:
+                if not entry.is_file(follow_symlinks=False):
+                    continue
+                if prefix and not entry.name.startswith(prefix):
+                    continue
+                yield entry.name + "\n"
+                count += 1
+                if limit and count >= limit:
+                    return
+
+    return StreamingResponse(iter_names(), media_type="text/plain")
 
 
 @app.delete("/{filename:path}")
