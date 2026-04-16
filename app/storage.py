@@ -98,8 +98,11 @@ class S3StorageBackend(StorageBackend):
         try:
             self._client.head_object(Bucket=self._bucket, Key=self._s3_key(key))
             return True
-        except self._client.exceptions.ClientError:
-            return False
+        except self._client.exceptions.ClientError as e:
+            error_code: str = e.response["Error"]["Code"]
+            if error_code == "404" or error_code == "NoSuchKey":
+                return False
+            raise
 
     def read_file(self, key: str) -> bytes:
         response = self._client.get_object(Bucket=self._bucket, Key=self._s3_key(key))
