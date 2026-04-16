@@ -1,3 +1,4 @@
+import base64
 import os
 import secrets
 import tempfile
@@ -22,6 +23,10 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from storage import get_cache_storage, get_image_storage
 
 app = FastAPI(openapi_url=None)
+
+BLACK_PIXEL_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+)
 
 # Rate limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -217,7 +222,7 @@ def get_image(
     filename: str,
     w: str = Query(default=""),
     h: str = Query(default=""),
-) -> FileResponse:
+) -> Response:
     if "/" in filename or "\\" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
 
@@ -225,7 +230,7 @@ def get_image(
     cache_storage = get_cache_storage()
 
     if not image_storage.file_exists(filename):
-        raise HTTPException(status_code=404, detail="File not found")
+        return Response(content=BLACK_PIXEL_PNG, media_type="image/png", status_code=404)
 
     filename_without_extension, extension = os.path.splitext(filename)
 
