@@ -1,0 +1,6 @@
+"""Type stubs for boto3."""
+
+from typing import Any
+
+def client(service_name: str, **kwargs: Any) -> Any: ...
+def resource(service_name: str, **kwargs: Any) -> Any: ...

@@ -1,5 +1,6 @@
 import os
 import secrets
+import tempfile
 import urllib.request
 from typing import Any, Optional
 
@@ -18,6 +19,7 @@ from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
+from storage import get_cache_storage, get_image_storage
 
 app = FastAPI(openapi_url=None)
 
@@ -180,9 +182,8 @@ async def upload_image(
         output_type = "svg"
 
     output_filename = os.path.basename(tmp_filepath) + f".{output_type}"
-    output_path = os.path.join(settings.IMAGES_DIR, output_filename)
 
-    error = imgpush.process_image(tmp_filepath, output_path, output_type, is_svg)
+    error = imgpush.process_image(tmp_filepath, output_filename, output_type, is_svg)
 
     if error:
         raise HTTPException(status_code=400, detail=error)
@@ -217,14 +218,18 @@ def get_image(
     w: str = Query(default=""),
     h: str = Query(default=""),
 ) -> FileResponse:
-    path = os.path.join(settings.IMAGES_DIR, filename)
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
 
-    if not os.path.isfile(path):
+    image_storage = get_image_storage()
+    cache_storage = get_cache_storage()
+
+    if not image_storage.file_exists(filename):
         raise HTTPException(status_code=404, detail="File not found")
 
     filename_without_extension, extension = os.path.splitext(filename)
 
-    if (w or h) and os.path.isfile(path) and extension not in (".mp4", ".svg"):
+    if (w or h) and extension not in (".mp4", ".svg"):
         try:
             width = imgpush.get_size_from_string(w)
             height = imgpush.get_size_from_string(h)
@@ -237,11 +242,20 @@ def get_image(
         dimensions = f"{width}x{height}"
         resized_filename = filename_without_extension + f"_{dimensions}{extension}"
 
-        resized_path = os.path.join(settings.CACHE_DIR, resized_filename)
-
-        if not os.path.isfile(resized_path) and (width or height):
+        if not cache_storage.file_exists(resized_filename) and (width or height):
             imgpush.clear_imagemagick_temp_files()
-            imgpush.resize_image(path, width, height, resized_path)
+            source_path = image_storage.get_local_path(filename)
+            fd, tmp_resized = tempfile.mkstemp(suffix=extension, dir="/tmp")
+            os.close(fd)
+            try:
+                imgpush.resize_image(source_path, width, height, tmp_resized)
+                cache_storage.upload_from_path(tmp_resized, resized_filename)
+            finally:
+                if os.path.exists(tmp_resized):
+                    os.remove(tmp_resized)
+
+        resized_path = cache_storage.get_local_path(resized_filename)
         return FileResponse(resized_path, headers={"X-Sendfile": resized_path})
 
-    return FileResponse(path, headers={"X-Sendfile": path})
+    local_path = image_storage.get_local_path(filename)
+    return FileResponse(local_path, headers={"X-Sendfile": local_path})

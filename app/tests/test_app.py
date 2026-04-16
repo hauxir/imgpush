@@ -27,9 +27,15 @@ def client():
 @pytest.fixture
 def temp_dirs(monkeypatch):
     """Create temporary directories for images and cache."""
+    import storage
+
     with tempfile.TemporaryDirectory() as images_dir, tempfile.TemporaryDirectory() as cache_dir:
         monkeypatch.setattr("settings.IMAGES_DIR", images_dir)
         monkeypatch.setattr("settings.CACHE_DIR", cache_dir)
+        monkeypatch.setattr("settings.STORAGE_BACKEND", "local")
+        # Reset storage singletons so they pick up patched settings
+        monkeypatch.setattr(storage, "_image_storage", None)
+        monkeypatch.setattr(storage, "_cache_storage", None)
         yield {"images": images_dir, "cache": cache_dir}
 
 
