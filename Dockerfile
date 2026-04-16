@@ -1,8 +1,7 @@
 # Build stage
 FROM ubuntu:24.04 AS builder
 
-RUN sed -i 's|http://archive.ubuntu.com|http://mirrors.kernel.org|g' /etc/apt/sources.list.d/ubuntu.sources && \
-    apt-get update && \
+RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     python3 \
     python3-venv \
@@ -21,8 +20,7 @@ RUN uv sync --frozen --no-cache --no-dev --extra rembg
 # Runtime stage
 FROM ubuntu:24.04
 
-RUN sed -i 's|http://archive.ubuntu.com|http://mirrors.kernel.org|g' /etc/apt/sources.list.d/ubuntu.sources && \
-    apt-get update && \
+RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libmagickwand-dev \
     nginx \
