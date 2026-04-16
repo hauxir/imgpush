@@ -24,6 +24,17 @@ REQUIRE_API_KEY_FOR_DELETE: bool = True
 MAX_API_KEY_ATTEMPTS_PER_MINUTE: int = 5
 ALLOW_REMOVE_BG: bool = False
 
+STORAGE_BACKEND: str = "local"
+S3_ENDPOINT_URL: str = ""
+S3_ACCESS_KEY_ID: str = ""
+S3_SECRET_ACCESS_KEY: str = ""
+S3_BUCKET_NAME: str = ""
+S3_REGION: str = ""
+S3_IMAGES_PREFIX: str = "images/"
+S3_CACHE_PREFIX: str = "cache/"
+LOCAL_CACHE_DIR: str = "/local_cache/"
+LOCAL_CACHE_MAX_SIZE_MB: int = 2048
+
 VALID_SIZES: list[int] = []
 
 MAX_SIZE_MB: int = 16

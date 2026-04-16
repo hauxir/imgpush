@@ -8,6 +8,18 @@ services:
       - ./app:/app
       - ./images:/images
       - ./cache:/cache
+      - ./local_cache:/local_cache
+    environment:
+      # STORAGE_BACKEND: "s3"  # "local" (default) or "s3"
+      # S3_ENDPOINT_URL: "https://<account-id>.r2.cloudflarestorage.com"
+      # S3_ACCESS_KEY_ID: ""
+      # S3_SECRET_ACCESS_KEY: ""
+      # S3_BUCKET_NAME: ""
+      # S3_REGION: ""
+      # S3_IMAGES_PREFIX: "images/"
+      # S3_CACHE_PREFIX: "cache/"
+      # LOCAL_CACHE_DIR: "/local_cache/"
+      # LOCAL_CACHE_MAX_SIZE_MB: "2048"
     healthcheck:
       start_period: 0s
       test: ['CMD-SHELL', 'curl localhost:5000/liveness -s -f -o /dev/null || exit 1']

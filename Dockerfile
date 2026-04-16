@@ -42,6 +42,7 @@ RUN /.venv/bin/python -c "from rembg import new_session; new_session('u2net')"
 
 RUN mkdir /images
 RUN mkdir /cache
+RUN mkdir /local_cache
 
 EXPOSE 5000
 

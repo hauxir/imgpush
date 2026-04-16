@@ -3,7 +3,6 @@ import gc
 import glob
 import os
 import random
-import shutil
 import string
 import time
 import uuid
@@ -11,6 +10,7 @@ from typing import Optional, Union
 
 import settings
 from PIL import Image as PILImage
+from storage import get_cache_storage, get_image_storage
 from wand.exceptions import MissingDelegateError
 from wand.image import Image
 
@@ -76,7 +76,8 @@ def clear_imagemagick_temp_files() -> None:
 def get_random_filename() -> str:
     random_string = generate_random_filename()
     if settings.NAME_STRATEGY == "randomstr":
-        file_exists = len(glob.glob(f"{settings.IMAGES_DIR}/{random_string}.*")) > 0
+        storage = get_image_storage()
+        file_exists = len(storage.list_files(f"{random_string}.")) > 0
         if file_exists:
             return get_random_filename()
     return random_string
@@ -165,25 +166,27 @@ def delete_image(filename: str) -> int:
     Raises PathTraversalError if filename attempts directory traversal.
     """
     # Sanitize filename to prevent path traversal
-    image_path = os.path.realpath(os.path.join(settings.IMAGES_DIR, filename))
-    images_dir = os.path.realpath(settings.IMAGES_DIR)
-
-    if not image_path.startswith(images_dir + os.sep):
+    if "/" in filename or "\\" in filename or ".." in filename:
         raise PathTraversalError("Invalid filename")
 
-    if not os.path.isfile(image_path):
+    image_storage = get_image_storage()
+    cache_storage = get_cache_storage()
+
+    if not image_storage.file_exists(filename):
         raise FileNotFoundError(f"Image {filename} not found")
 
-    os.remove(image_path)
+    image_storage.delete_file(filename)
 
-    # Also sanitize cache path - escape glob special chars in filename
-    safe_filename = os.path.basename(image_path)
-    filename_without_ext, extension = os.path.splitext(safe_filename)
-    cache_pattern = os.path.join(settings.CACHE_DIR, f"{glob.escape(filename_without_ext)}_*x*{glob.escape(extension)}")
-    cached_files = glob.glob(cache_pattern)
+    # Find and delete cached resized versions
+    filename_without_ext, extension = os.path.splitext(filename)
+    cached_files = [
+        f
+        for f in cache_storage.list_files(f"{filename_without_ext}_")
+        if f.endswith(extension)
+    ]
 
     for cached_file in cached_files:
-        os.remove(cached_file)
+        cache_storage.delete_file(cached_file)
 
     return len(cached_files)
 
@@ -209,34 +212,42 @@ def remove_background(filepath: str, autocrop: bool = False) -> None:
         result.close()
 
 
-def process_image(tmp_filepath: str, output_path: str, output_type: str, is_svg: bool = False) -> Optional[str]:
+def process_image(tmp_filepath: str, output_filename: str, output_type: str, is_svg: bool = False) -> Optional[str]:
     """Process and save image with appropriate format conversion"""
     error = None
+    storage = get_image_storage()
 
     try:
-        if os.path.exists(output_path):
+        if storage.file_exists(output_filename):
             raise CollisionError
         if output_type == "mp4":
             if settings.ALLOW_VIDEO:
-                shutil.move(tmp_filepath, output_path)
+                storage.upload_from_path(tmp_filepath, output_filename)
             else:
                 error = "Invalid Filetype"
         elif output_type == "svg":
-            shutil.move(tmp_filepath, output_path)
+            storage.upload_from_path(tmp_filepath, output_filename)
         else:
-            with Image(filename=tmp_filepath) as img:
-                img.strip()
-                if output_type not in ["gif", "webp"]:
-                    # Extract first frame for non-animated formats
-                    first_frame = img.sequence[0]  # type: ignore
-                    with Image(image=first_frame) as first_frame_img, first_frame_img.convert(output_type) as converted:
-                        converted.save(filename=output_path)
-                else:
-                    # Coalesce frames to ensure consistent dimensions for animated images
-                    # Required for WebP which doesn't support variable frame sizes
-                    img.coalesce()
-                    with img.convert(output_type) as converted:
-                        converted.save(filename=output_path)
+            # Process to a temp file, then upload
+            tmp_output = tmp_filepath + f".out.{output_type}"
+            try:
+                with Image(filename=tmp_filepath) as img:
+                    img.strip()
+                    if output_type not in ["gif", "webp"]:
+                        # Extract first frame for non-animated formats
+                        first_frame = img.sequence[0]  # type: ignore
+                        with Image(image=first_frame) as first_frame_img, first_frame_img.convert(output_type) as converted:
+                            converted.save(filename=tmp_output)
+                    else:
+                        # Coalesce frames to ensure consistent dimensions for animated images
+                        # Required for WebP which doesn't support variable frame sizes
+                        img.coalesce()
+                        with img.convert(output_type) as converted:
+                            converted.save(filename=tmp_output)
+                storage.upload_from_path(tmp_output, output_filename)
+            finally:
+                if os.path.exists(tmp_output):
+                    os.remove(tmp_output)
     except MissingDelegateError:
         error = "Invalid Filetype"
     finally:
