@@ -1,5 +1,6 @@
 import os
 import secrets
+import tempfile
 import urllib.request
 from typing import Any, Optional
 
@@ -217,6 +218,9 @@ def get_image(
     w: str = Query(default=""),
     h: str = Query(default=""),
 ) -> FileResponse:
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
     image_storage = get_image_storage()
     cache_storage = get_cache_storage()
 
@@ -241,10 +245,14 @@ def get_image(
         if not cache_storage.file_exists(resized_filename) and (width or height):
             imgpush.clear_imagemagick_temp_files()
             source_path = image_storage.get_local_path(filename)
-            # Resize to a temp file, then upload to cache storage
-            tmp_resized = f"/tmp/{resized_filename}"
-            imgpush.resize_image(source_path, width, height, tmp_resized)
-            cache_storage.upload_from_path(tmp_resized, resized_filename)
+            fd, tmp_resized = tempfile.mkstemp(suffix=extension, dir="/tmp")
+            os.close(fd)
+            try:
+                imgpush.resize_image(source_path, width, height, tmp_resized)
+                cache_storage.upload_from_path(tmp_resized, resized_filename)
+            finally:
+                if os.path.exists(tmp_resized):
+                    os.remove(tmp_resized)
 
         resized_path = cache_storage.get_local_path(resized_filename)
         return FileResponse(resized_path, headers={"X-Sendfile": resized_path})

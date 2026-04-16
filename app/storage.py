@@ -31,10 +31,13 @@ class StorageBackend(ABC):
 
 class LocalStorageBackend(StorageBackend):
     def __init__(self, base_dir: str) -> None:
-        self._base_dir = base_dir
+        self._base_dir = os.path.realpath(base_dir)
 
     def _full_path(self, key: str) -> str:
-        return os.path.join(self._base_dir, key)
+        path = os.path.realpath(os.path.join(self._base_dir, key))
+        if not path.startswith(self._base_dir + os.sep) and path != self._base_dir:
+            raise ValueError(f"Path traversal detected: {key}")
+        return path
 
     def file_exists(self, key: str) -> bool:
         return os.path.isfile(self._full_path(key))
