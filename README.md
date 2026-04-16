@@ -8,7 +8,8 @@ Minimalist Self-hosted Image Service for user submitted images in your app (e.g.
 - Built-in Rate limiting
 - Built-in Allowed Origin whitelisting
 - Liveness API
-- Delete API with API key authentication 
+- Delete API with API key authentication
+- Optional S3-compatible storage backend (AWS S3, Cloudflare R2, MinIO, etc.)
 
 ## Usage
 Uploading an image:
@@ -137,6 +138,16 @@ livenessProbe:
 | REQUIRE_API_KEY_FOR_UPLOAD  | False  | Boolean, require API key for uploads. |
 | REQUIRE_API_KEY_FOR_DELETE  | True  | Boolean, require API key for deletes. Delete is disabled if API_KEY is not set. |
 | MAX_API_KEY_ATTEMPTS_PER_MINUTE  | 5  | Integer, max failed API key attempts per IP per minute. |
+| STORAGE_BACKEND  | "local"  | Storage backend, `local` or `s3`. See [S3 Storage](#s3-storage). |
+| S3_ENDPOINT_URL  | ""  | S3 endpoint URL. Leave empty for AWS S3, set to your provider's URL for R2/MinIO/etc. |
+| S3_ACCESS_KEY_ID  | ""  | S3 access key ID. |
+| S3_SECRET_ACCESS_KEY  | ""  | S3 secret access key. |
+| S3_BUCKET_NAME  | ""  | S3 bucket name. |
+| S3_REGION  | ""  | S3 region (required for AWS S3; optional for some providers). |
+| S3_IMAGES_PREFIX  | "images/"  | Key prefix for stored original images. |
+| S3_CACHE_PREFIX  | "cache/"  | Key prefix for resized image cache. |
+| LOCAL_CACHE_DIR  | "/local_cache/"  | Local disk path used to cache S3 objects for serving. |
+| LOCAL_CACHE_MAX_SIZE_MB  | 2048  | Integer, max size of the local S3 cache in megabytes. |
 
 Setting configuration variables is all set through env variables that get passed to the docker container.
 ### Example:
@@ -147,3 +158,31 @@ or to quickly deploy it locally, run
 ```
 docker-compose up -d
 ```
+
+## S3 Storage
+
+By default, imgpush stores images on the local filesystem under `/images`. You can instead store images in any S3-compatible object storage (AWS S3, Cloudflare R2, MinIO, Backblaze B2, etc.) by setting `STORAGE_BACKEND=s3` along with the `S3_*` variables in the [Configuration](#configuration) table.
+
+When the S3 backend is active, originals are uploaded to `S3_BUCKET_NAME` under `S3_IMAGES_PREFIX`, and resized variants are cached both in S3 (under `S3_CACHE_PREFIX`) and on a local disk cache at `LOCAL_CACHE_DIR` to preserve fast serving via nginx `X-Accel-Redirect`. The local cache is bounded by `LOCAL_CACHE_MAX_SIZE_MB` and evicts least-recently-used entries.
+
+Example `docker run` with Cloudflare R2:
+```bash
+docker run \
+  -e STORAGE_BACKEND=s3 \
+  -e S3_ENDPOINT_URL="https://<account-id>.r2.cloudflarestorage.com" \
+  -e S3_ACCESS_KEY_ID="..." \
+  -e S3_SECRET_ACCESS_KEY="..." \
+  -e S3_BUCKET_NAME="my-bucket" \
+  -v <PATH FOR LOCAL CACHE>:/local_cache \
+  -p 5000:5000 hauxir/imgpush:latest
+```
+
+### Migrating existing images to S3
+
+To copy images from an existing local deployment into S3, use the provided migration script:
+```bash
+S3_ENDPOINT_URL=... S3_ACCESS_KEY_ID=... S3_SECRET_ACCESS_KEY=... \
+S3_BUCKET_NAME=... S3_REGION=... \
+python scripts/migrate_to_s3.py --images-dir /images
+```
+Pass `--dry-run` to preview, or `--verify` to check that uploaded objects exist.
