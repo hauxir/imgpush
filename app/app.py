@@ -93,6 +93,7 @@ def root() -> str:
     <br>
     <label><input type="checkbox" name="remove_bg" value="true"> Remove background</label>
     <label><input type="checkbox" name="autocrop" value="true"> Autocrop</label>
+    <label><input type="checkbox" name="upscale" value="true"> Upscale (4x)</label>
     <br>
     <input type="submit" value="Upload" name="submit">
 </form>
@@ -113,6 +114,7 @@ async def upload_image(
     file: Optional[UploadFile] = File(default=None),
     remove_bg: Optional[str] = Form(default=None),
     autocrop: Optional[str] = Form(default=None),
+    upscale: Optional[str] = Form(default=None),
     authorization: Optional[str] = Header(default=None),
 ) -> dict[str, str]:
     if settings.API_KEY and settings.REQUIRE_API_KEY_FOR_UPLOAD:
@@ -143,6 +145,8 @@ async def upload_image(
                 remove_bg = body.get("remove_bg")
             if autocrop is None:
                 autocrop = body.get("autocrop")
+            if upscale is None:
+                upscale = body.get("upscale")
         except HTTPException:
             raise
         except Exception:
@@ -166,7 +170,17 @@ async def upload_image(
                 os.remove(tmp_filepath)
             raise HTTPException(status_code=400, detail=f"Background removal failed: {exc}")
 
-    if should_remove_bg and not settings.OUTPUT_TYPE and output_type not in ("png", "webp"):
+    should_upscale = upscale in ("true", True) and settings.ALLOW_UPSCALE and not is_svg and file_filetype not in ("mp4",)
+
+    if should_upscale:
+        try:
+            imgpush.upscale_image(tmp_filepath)
+        except Exception as exc:
+            if os.path.exists(tmp_filepath):
+                os.remove(tmp_filepath)
+            raise HTTPException(status_code=400, detail=f"Upscaling failed: {exc}")
+
+    if (should_remove_bg or should_upscale) and not settings.OUTPUT_TYPE and output_type not in ("png", "webp"):
         output_type = "png"
 
     if file_filetype == "mp4":
