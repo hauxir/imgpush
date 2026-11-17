@@ -161,7 +161,15 @@ class TestUploadEndpoint:
             "http://does-not-exist.invalid/",
         ],
     )
-    def test_upload_by_url_rejects_unsafe_urls(self, client, temp_dirs, url):
+    def test_upload_by_url_rejects_unsafe_urls(self, client, temp_dirs, monkeypatch, url):
+        real_getaddrinfo = url_fetch.socket.getaddrinfo
+
+        def offline_getaddrinfo(host, *args, **kwargs):
+            if isinstance(host, str) and host.endswith(".invalid"):
+                raise url_fetch.socket.gaierror(url_fetch.socket.EAI_NONAME, "Name or service not known")
+            return real_getaddrinfo(host, *args, **kwargs)
+
+        monkeypatch.setattr(url_fetch.socket, "getaddrinfo", offline_getaddrinfo)
         response = client.post("/", json={"url": url})
         assert response.status_code == 400
         assert response.json()["detail"] == "URL not allowed"
@@ -190,7 +198,7 @@ class TestUploadEndpoint:
         assert len(written) == 1
         assert not os.path.exists(written[0])
 
-    @pytest.mark.parametrize(("setting", "expected"), [(True, True), (False, False), ("false", False)])
+    @pytest.mark.parametrize(("setting", "expected"), [(True, True), (False, False)])
     def test_upload_by_url_passes_allow_private_setting(self, client, temp_dirs, monkeypatch, setting, expected):
         seen: list[bool] = []
 
@@ -202,6 +210,42 @@ class TestUploadEndpoint:
         monkeypatch.setattr(url_fetch, "fetch_url_to_file", fake_fetch)
         client.post("/", json={"url": "https://example.com/x.png"})
         assert seen == [expected]
+
+    def test_upload_by_url_rejected_when_all_slots_busy(self, client, temp_dirs, monkeypatch):
+        import app as app_module
+
+        called: list[str] = []
+        monkeypatch.setattr(url_fetch, "fetch_url_to_file", lambda *a, **k: called.append("fetch"))
+        monkeypatch.setattr(app_module, "_url_fetches_in_flight", 8)
+        monkeypatch.setattr("settings.MAX_CONCURRENT_URL_FETCHES", 8)
+        response = client.post("/", json={"url": "https://example.com/x.png"})
+        assert response.status_code == 503
+        assert response.headers["Retry-After"]
+        assert called == []
+
+    def test_upload_by_url_rejected_when_client_has_too_many_in_flight(self, client, temp_dirs, monkeypatch):
+        import collections
+
+        import app as app_module
+
+        called: list[str] = []
+        monkeypatch.setattr(url_fetch, "fetch_url_to_file", lambda *a, **k: called.append("fetch"))
+        monkeypatch.setattr("settings.MAX_CONCURRENT_URL_FETCHES_PER_IP", 2)
+        monkeypatch.setattr(app_module, "_url_fetches_per_ip", collections.Counter({"testclient": 2}))
+        response = client.post("/", json={"url": "https://example.com/x.png"})
+        assert response.status_code == 429
+        assert called == []
+
+    def test_upload_by_url_releases_slot_afterwards(self, client, temp_dirs, monkeypatch):
+        import app as app_module
+
+        def failing_fetch(*args, **kwargs):
+            raise url_fetch.FetchError("stop")
+
+        monkeypatch.setattr(url_fetch, "fetch_url_to_file", failing_fetch)
+        client.post("/", json={"url": "https://example.com/x.png"})
+        assert app_module._url_fetches_in_flight == 0
+        assert not app_module._url_fetches_per_ip
 
     def test_upload_svg_file(self, client, temp_dirs, monkeypatch):
         monkeypatch.setattr("settings.NUDE_FILTER_MAX_THRESHOLD", None)

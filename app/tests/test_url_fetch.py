@@ -70,9 +70,11 @@ def test_disallowed_urls_rejected(url: object, allow_private: bool) -> None:
 
 class _Handler(http.server.BaseHTTPRequestHandler):
     hits: ClassVar[list[str]] = []
+    user_agents: ClassVar[list[str]] = []
 
     def do_GET(self) -> None:  # noqa: N802
         _Handler.hits.append(self.path)
+        _Handler.user_agents.append(self.headers.get("User-Agent", ""))
         if self.path == "/slow":
             self.send_response(200)
             self.end_headers()
@@ -120,6 +122,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 @pytest.fixture
 def loopback_server() -> Iterator[int]:
     _Handler.hits = []
+    _Handler.user_agents = []
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     server.daemon_threads = True
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -243,9 +246,13 @@ def test_dns_lookup_bounded_by_deadline(monkeypatch: pytest.MonkeyPatch) -> None
         release.set()
 
 
-def test_unresolvable_host_looks_like_a_blocked_one() -> None:
+def test_unresolvable_host_looks_like_a_blocked_one(monkeypatch: pytest.MonkeyPatch) -> None:
     # Telling "doesn't resolve" apart from "resolves to an internal address"
     # would let callers enumerate internal hostnames.
+    def nxdomain(*args: object, **kwargs: object) -> list[object]:
+        raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+
+    monkeypatch.setattr(url_fetch.socket, "getaddrinfo", nxdomain)
     with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.BlockedURLError):
         url_fetch.fetch_url_to_file("http://does-not-exist.invalid/x.png", os.path.join(d, "out"), 1024)
 
@@ -293,3 +300,26 @@ def test_redirect_to_non_http_scheme_blocked(loopback_server: int) -> None:
         url_fetch.fetch_url_to_file(
             f"http://127.0.0.1:{loopback_server}/to-file", os.path.join(d, "out"), 1024, allow_private=True
         )
+
+
+def test_requests_carry_imgpush_user_agent(loopback_server: int) -> None:
+    with tempfile.TemporaryDirectory() as d:
+        url_fetch.fetch_url_to_file(
+            f"http://127.0.0.1:{loopback_server}/x.png", os.path.join(d, "out"), 1024, allow_private=True
+        )
+    assert _Handler.user_agents == [url_fetch.USER_AGENT]
+
+
+def test_deadline_firing_after_finish_is_ignored() -> None:
+    # A fetch that completed just before the timer went off must not be
+    # reported as having taken too long.
+    deadline = url_fetch._Deadline(60)
+    assert deadline.finish() is False
+    deadline._fire()
+    assert deadline.fired is False
+
+
+def test_deadline_fired_before_finish_is_reported() -> None:
+    deadline = url_fetch._Deadline(60)
+    deadline._fire()
+    assert deadline.finish() is True

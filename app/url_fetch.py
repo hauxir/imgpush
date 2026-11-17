@@ -29,7 +29,14 @@ FETCH_TIMEOUT = 10
 FETCH_DEADLINE = 30
 # getaddrinfo cannot be cancelled, so a lookup that outlives its fetch keeps its
 # thread until the system resolver gives up. This caps how many can pile up.
+# Known trade-off: anyone who controls a nameserver that never answers can fill
+# every slot, and URL uploads then fail until the system resolver times those
+# lookups out (resolv.conf timeout x attempts x nameservers; ~10-30s on glibc
+# defaults). File uploads are unaffected. Per-IP rate and concurrency limits in
+# app.py bound how often one client can do this; a deployment that cares more
+# should point the system resolver at a caching resolver with short timeouts.
 MAX_PENDING_LOOKUPS = 16
+USER_AGENT = "imgpush (+https://github.com/hauxir/imgpush)"
 
 _lookup_slots = threading.BoundedSemaphore(MAX_PENDING_LOOKUPS)
 
@@ -105,6 +112,7 @@ class _Deadline:
         self._lock = threading.Lock()
         self._sockets: list[socket.socket] = []
         self.fired = False
+        self._finished = False
         self._timer = threading.Timer(seconds, self._fire)
         self._timer.daemon = True
 
@@ -117,9 +125,21 @@ class _Deadline:
 
     def _fire(self) -> None:
         with self._lock:
+            if self._finished:
+                return
             self.fired = True
             for sock in self._sockets:
                 _shutdown(sock)
+
+    def finish(self) -> bool:
+        """Stop the watchdog for good; returns whether it had already fired.
+
+        Taken under the lock so a fetch that completed just as the deadline
+        ran out is judged once, consistently, rather than racing the timer.
+        """
+        with self._lock:
+            self._finished = True
+            return self.fired
 
     def watch(self, sock: socket.socket) -> None:
         """Have the watchdog shut this socket down when the deadline passes."""
@@ -270,6 +290,7 @@ class _RedirectHandler(urllib.request.HTTPRedirectHandler):
         if location:
             target = urllib.parse.urljoin(req.full_url, location)
             if urllib.parse.urlsplit(target).scheme.lower() not in ALLOWED_SCHEMES:
+                fp.close()
                 raise BlockedURLError("Redirect to a non-http(s) URL")
         return super().http_error_302(req, fp, code, msg, headers)
 
@@ -288,6 +309,8 @@ def _build_opener(deadline: _Deadline, allow_private: bool) -> urllib.request.Op
         urllib.request.HTTPErrorProcessor(),
     ):
         opener.add_handler(handler)
+    # The default "Python-urllib/x.y" is blocked outright by many CDNs.
+    opener.addheaders = [("User-Agent", USER_AGENT)]
     return opener
 
 
@@ -329,7 +352,7 @@ def fetch_url_to_file(url: object, dest_path: str, max_bytes: int, *, allow_priv
                 # The watchdog cut the connection; whatever broke is fallout.
                 raise FetchError("Fetching the URL took too long") from exc
             raise _as_fetch_error(exc) from exc
-        if deadline.fired:
+        if deadline.finish():
             # A shut-down socket reads as EOF, which ends a body of unknown length.
             raise FetchError("Fetching the URL took too long")
 

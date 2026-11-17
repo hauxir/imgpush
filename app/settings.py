@@ -1,6 +1,6 @@
 import contextlib
 import os
-from typing import Optional
+from typing import Any, Optional
 
 IMAGES_DIR: str = "/images/"
 CACHE_DIR: str = "/cache/"
@@ -41,10 +41,34 @@ MAX_SIZE_MB: int = 16
 ALLOW_PRIVATE_URLS: bool = False
 MAX_CONCURRENT_URL_FETCHES: int = 8
 
-for variable in [item for item in globals() if not item.startswith("__")]:
-    NULL = "NULL"
-    env_var = os.getenv(variable, NULL).strip()
-    if env_var is not NULL:
-        with contextlib.suppress(Exception):
-            env_var = eval(env_var)
-    globals()[variable] = env_var if env_var is not NULL else globals()[variable]
+MAX_CONCURRENT_URL_FETCHES_PER_IP: int = 2
+
+_TRUE_STRINGS = ("true", "1", "yes", "on")
+_FALSE_STRINGS = ("false", "0", "no", "off", "")
+
+
+def parse_env_value(default: Any, raw: str) -> Any:
+    """Turn an environment variable into a setting value.
+
+    Values are evaluated as Python literals where possible. Settings whose
+    default is a bool accept the usual spellings (true/false, 1/0, yes/no,
+    on/off, any case) so that e.g. ALLOW_VIDEO=false doesn't end up as the
+    truthy string "false".
+    """
+    raw = raw.strip()
+    if isinstance(default, bool):
+        if raw.lower() in _TRUE_STRINGS:
+            return True
+        if raw.lower() in _FALSE_STRINGS:
+            return False
+        raise ValueError(f"Expected a boolean, got {raw!r}")
+    value: Any = raw
+    with contextlib.suppress(Exception):
+        value = eval(raw)
+    return value
+
+
+for variable in [item for item in globals() if not item.startswith("_") and item.isupper()]:
+    env_var = os.getenv(variable)
+    if env_var is not None:
+        globals()[variable] = parse_env_value(globals()[variable], env_var)
