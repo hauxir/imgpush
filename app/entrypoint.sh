@@ -23,7 +23,7 @@ mkdir -p /etc/nginx/imgpush.d
 : > /etc/nginx/imgpush.d/realip.conf
 if [ -n "${TRUSTED_PROXIES:-}" ]; then
     for proxy in ${TRUSTED_PROXIES//,/ }; do
-        if ! [[ "$proxy" =~ ^[0-9a-fA-F:.]+(/[0-9]{1,3})?$ ]]; then
+        if ! python3 -c 'import ipaddress, sys; ipaddress.ip_network(sys.argv[1], strict=False)' "$proxy" 2>/dev/null; then
             echo "TRUSTED_PROXIES: '$proxy' is not an IP address or CIDR range" >&2
             exit 1
         fi
@@ -41,4 +41,3 @@ nginx
 # Only nginx can reach the unix socket, and it always sets X-Forwarded-For
 # itself, so the header is trusted from every peer on it.
 uvicorn app:app --uds imgpush.sock --access-log --workers "$WORKERS" --limit-max-requests 200 --forwarded-allow-ips '*'
-

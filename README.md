@@ -26,7 +26,7 @@ Uploading an image by URL:
 ```bash
 > curl -X POST -H "Content-Type: application/json" -d '{"url": "<SOME_URL>"}'  http://some.host
 ```
-Only `http`/`https` URLs pointing at public addresses are fetched; URLs whose host doesn't resolve, or resolves to loopback, private, link-local or other internal addresses (including after redirects), are rejected with `400 URL not allowed`. Set `ALLOW_PRIVATE_URLS=True` if you need to fetch from hosts on your own network. Downloads are limited to `MAX_SIZE_MB` and to 30 seconds.
+Only `http`/`https` URLs pointing at public addresses are fetched; URLs whose host doesn't resolve, or resolves to loopback, private, link-local or other internal addresses (including after redirects), are rejected with `400 URL not allowed`. Set `ALLOW_PRIVATE_URLS=True` if you need to fetch from hosts on your own network. Downloads are limited to `MAX_SIZE_MB` and to 30 seconds. Set `ALLOW_URL_UPLOAD=False` to turn upload-by-URL off altogether; such requests then get `403`.
 
 When the remote server is the problem the response says so: `413` if the file is over `MAX_SIZE_MB`, `504` if it took too long, `502` for anything else (an HTTP error from the remote server, a refused connection).
 Fetching a file in a specific size(e.g. 320x240):
@@ -128,6 +128,7 @@ livenessProbe:
 | ------------- | ------------- |------------- |
 | OUTPUT_TYPE  | Same as Input file | An image type supported by imagemagick, e.g. png or jpg |
 | MAX_SIZE_MB  | "16"  | Integer, Max size per uploaded file in megabytes |
+| ALLOW_URL_UPLOAD  | True  | Boolean, accept uploads given as a URL for imgpush to fetch. Turn it off if your clients only upload files. |
 | ALLOW_PRIVATE_URLS  | False  | Boolean, allow upload-by-URL to fetch from loopback, private and other non-public addresses. Only enable this if every client that can upload is trusted. |
 | MAX_CONCURRENT_URL_FETCHES  | 8  | Integer, how many upload-by-URL downloads each worker process runs at once; further requests get `503` with `Retry-After`. With `WORKERS` processes the container as a whole runs up to `WORKERS` times this. |
 | MAX_CONCURRENT_URL_FETCHES_PER_IP  | 2  | Integer, how many upload-by-URL downloads one IP address can have running at once in each worker process; further requests get `429`. |

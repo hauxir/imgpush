@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "sys_platform == 'darwin'",
@@ -336,6 +336,7 @@ version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },
+    { name = "anyio" },
     { name = "boto3" },
     { name = "fastapi" },
     { name = "filetype" },
@@ -364,6 +365,7 @@ rembg = [
 [package.metadata]
 requires-dist = [
     { name = "aiofiles", specifier = "==24.1.0" },
+    { name = "anyio", specifier = "==4.12.0" },
     { name = "basedpyright", marker = "extra == 'dev'", specifier = "==1.31.3" },
     { name = "boto3", specifier = ">=1.35.0" },
     { name = "boto3-stubs", extras = ["s3"], marker = "extra == 'dev'", specifier = ">=1.35.0" },

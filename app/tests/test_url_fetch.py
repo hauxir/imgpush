@@ -245,7 +245,8 @@ def test_dns_lookup_bounded_by_deadline(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(url_fetch, "FETCH_DEADLINE", 1)
     start = time.monotonic()
     try:
-        with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.BlockedURLError):
+        # A timeout, not a refusal: the lookup never said the host doesn't exist.
+        with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.FetchTimeoutError):
             url_fetch.fetch_url_to_file("http://example.invalid/x.png", os.path.join(d, "out"), 1024)
         assert time.monotonic() - start < _DEADLINE_SLACK
     finally:

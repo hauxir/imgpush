@@ -229,6 +229,15 @@ class TestUploadEndpoint:
         client.post("/", json={"url": "https://example.com/x.png"})
         assert seen == [expected]
 
+    def test_upload_by_url_can_be_disabled(self, client, temp_dirs, monkeypatch):
+        called: list[str] = []
+        monkeypatch.setattr(url_fetch, "fetch_url_to_file", lambda *a, **k: called.append("fetch"))
+        monkeypatch.setattr("settings.ALLOW_URL_UPLOAD", False)
+        response = client.post("/", json={"url": "https://example.com/x.png"})
+        assert response.status_code == 403
+        assert response.json() == {"detail": "Upload by URL is disabled"}
+        assert not called
+
     def test_upload_by_url_rejected_when_all_slots_busy(self, client, temp_dirs, monkeypatch):
         import app as app_module
 

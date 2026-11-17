@@ -191,6 +191,8 @@ async def upload_image(
         try:
             body = await request.json()
             if "url" in body:
+                if not settings.ALLOW_URL_UPLOAD:
+                    raise HTTPException(status_code=403, detail="Upload by URL is disabled")
                 try:
                     fetch = functools.partial(
                         url_fetch.fetch_url_to_file,

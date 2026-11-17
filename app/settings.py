@@ -38,9 +38,9 @@ LOCAL_CACHE_MAX_SIZE_MB: int = 2048
 VALID_SIZES: list[int] = []
 
 MAX_SIZE_MB: int = 16
+ALLOW_URL_UPLOAD: bool = True
 ALLOW_PRIVATE_URLS: bool = False
 MAX_CONCURRENT_URL_FETCHES: int = 8
-
 MAX_CONCURRENT_URL_FETCHES_PER_IP: int = 2
 
 _TRUE_STRINGS = ("true", "1", "yes", "on")

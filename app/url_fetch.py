@@ -196,7 +196,7 @@ _AddrInfo = tuple[socket.AddressFamily, socket.SocketKind, int, str, tuple[Any, 
 
 def _resolve(host: str, port: int, deadline: _Deadline) -> list[_AddrInfo]:
     # getaddrinfo has no timeout of its own, so run it in a daemon thread and
-    # stop waiting when the deadline runs out. Failing to resolve is reported
+    # stop waiting when the deadline runs out (a timeout). Failing to resolve is reported
     # the same way as resolving to an internal address, so the error can't be
     # used to probe which internal hostnames exist.
     slots = _lookup_slots
@@ -218,7 +218,10 @@ def _resolve(host: str, port: int, deadline: _Deadline) -> list[_AddrInfo]:
         slots.release()
         raise
     thread.join(deadline.timeout())
-    if thread.is_alive() or not result or not result[0]:
+    if thread.is_alive():
+        # A resolver that is merely slow is not the client's URL being refused.
+        raise FetchTimeoutError("Fetching the URL took too long")
+    if not result or not result[0]:
         raise BlockedURLError(f"Could not resolve host: {host}")
     return result[0]
 
