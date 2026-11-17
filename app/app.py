@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import collections
 import contextlib
@@ -7,6 +8,7 @@ import logging
 import os
 import secrets
 import tempfile
+import threading
 from collections.abc import Collection, Iterator
 from typing import Any, Optional
 
@@ -83,6 +85,8 @@ _url_fetches_per_ip: collections.Counter[str] = collections.Counter()
 # or two; the fetch deadline is only the worst case.
 _URL_FETCH_RETRY_AFTER = "5"
 _warned_about_per_ip_cap = False
+# Slots still held for a DNS lookup that outlived its fetch; see _url_fetch_slot.
+_deferred_slot_releases: set[asyncio.Task[None]] = set()
 
 
 def _allowed_url_ports() -> Optional[Collection[int]]:
@@ -116,6 +120,11 @@ def _url_fetch_slot(client_ip: str) -> Iterator[None]:
     A queue would let one client that points us at slow servers keep every
     slot busy and make everyone else's requests wait. Only touched from the
     event loop thread, so the counters need no lock.
+
+    A fetch that gave up on a DNS lookup leaves a thread behind that cannot be
+    cancelled. The slot stays taken until that thread ends, so a client naming
+    hosts whose nameserver never answers is held to its own share of the
+    lookup threads instead of using up everyone's.
     """
     global _url_fetches_in_flight, _warned_about_per_ip_cap
     if _url_fetches_per_ip[client_ip] >= settings.MAX_CONCURRENT_URL_FETCHES_PER_IP and _per_ip_cap_applies(client_ip):
@@ -143,13 +152,35 @@ def _url_fetch_slot(client_ip: str) -> Iterator[None]:
         )
     _url_fetches_in_flight += 1
     _url_fetches_per_ip[client_ip] += 1
+    pending_lookup: Optional[threading.Thread] = None
     try:
         yield
+    except url_fetch.FetchError as exc:
+        pending_lookup = exc.pending_lookup
+        raise
     finally:
-        _url_fetches_in_flight -= 1
-        _url_fetches_per_ip[client_ip] -= 1
-        if _url_fetches_per_ip[client_ip] <= 0:
-            del _url_fetches_per_ip[client_ip]
+        if pending_lookup is not None and pending_lookup.is_alive():
+            task = asyncio.get_running_loop().create_task(_release_slot_when_lookup_ends(client_ip, pending_lookup))
+            _deferred_slot_releases.add(task)
+            task.add_done_callback(_deferred_slot_releases.discard)
+        else:
+            _release_url_fetch_slot(client_ip)
+
+
+def _release_url_fetch_slot(client_ip: str) -> None:
+    global _url_fetches_in_flight
+    _url_fetches_in_flight -= 1
+    _url_fetches_per_ip[client_ip] -= 1
+    if _url_fetches_per_ip[client_ip] <= 0:
+        del _url_fetches_per_ip[client_ip]
+
+
+async def _release_slot_when_lookup_ends(client_ip: str, lookup: threading.Thread) -> None:
+    try:
+        while lookup.is_alive():
+            await asyncio.sleep(0.25)
+    finally:
+        _release_url_fetch_slot(client_ip)
 
 
 def _remove_if_exists(path: str) -> None:
@@ -257,6 +288,7 @@ async def upload_image(
             if "url" in body:
                 if not settings.ALLOW_URL_UPLOAD:
                     raise HTTPException(status_code=403, detail="Upload by URL is disabled")
+                client_ip = client_key(request)
                 try:
                     fetch = functools.partial(
                         url_fetch.fetch_url_to_file,
@@ -266,12 +298,20 @@ async def upload_image(
                         allow_private=settings.ALLOW_PRIVATE_URLS,
                         allowed_ports=_allowed_url_ports(),
                     )
-                    with _url_fetch_slot(client_key(request)):
+                    with _url_fetch_slot(client_ip):
                         await anyio.to_thread.run_sync(fetch, limiter=_url_fetch_limiter)
                 except url_fetch.BlockedURLError as exc:
+                    # The client is told only "URL not allowed"; this is where the reason goes.
+                    logger.warning("Refused a URL upload from %s: %s", client_ip, exc)
                     raise HTTPException(status_code=exc.status_code, detail="URL not allowed") from exc
                 except url_fetch.FetchError as exc:
+                    logger.warning("URL upload from %s failed: %s (%r)", client_ip, exc, exc.__cause__)
                     raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+                except HTTPException:
+                    raise
+                except Exception:
+                    logger.exception("URL upload from %s failed unexpectedly", client_ip)
+                    raise
             else:
                 raise HTTPException(status_code=400, detail="File is missing!")
             # Pick up remove_bg/autocrop from JSON body

@@ -99,9 +99,20 @@ def parse_ports(value: Any, name: str = "setting") -> Optional[list[int]]:
     )
 
 
+def parse_positive_int(value: Any, name: str = "setting") -> int:
+    """Check a setting that counts something there must be at least one of."""
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
+        return value
+    raise ValueError(f"{name} must be a whole number of 1 or more, got {value!r}")
+
+
 for variable in [item for item in globals() if not item.startswith("_") and item.isupper()]:
     env_var = os.getenv(variable)
     if env_var is not None:
         globals()[variable] = parse_env_value(globals()[variable], env_var, variable)
 
 globals()["URL_UPLOAD_PORTS"] = parse_ports(URL_UPLOAD_PORTS, "URL_UPLOAD_PORTS")
+# Zero would refuse every URL upload (and is not a size a thread pool can have);
+# ALLOW_URL_UPLOAD=False is the way to turn them off.
+for _name in ("MAX_CONCURRENT_URL_FETCHES", "MAX_CONCURRENT_URL_FETCHES_PER_IP"):
+    globals()[_name] = parse_positive_int(globals()[_name], _name)

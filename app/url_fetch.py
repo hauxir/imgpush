@@ -13,6 +13,7 @@ read or handshake is in progress, however slowly the server is trickling bytes.
 import contextlib
 import http.client
 import ipaddress
+import logging
 import socket
 import ssl
 import threading
@@ -37,11 +38,16 @@ FETCH_DEADLINE = 20
 # every slot (the cap, like every limit here, is per worker process), and URL
 # uploads then fail until the system resolver times those
 # lookups out (resolv.conf timeout x attempts x nameservers; ~10-30s on glibc
-# defaults). File uploads are unaffected. Per-IP rate and concurrency limits in
-# app.py bound how often one client can do this; a deployment that cares more
-# should point the system resolver at a caching resolver with short timeouts.
+# defaults). File uploads are unaffected. A fetch that gives up on a lookup says
+# which thread is still running it (FetchError.pending_lookup), and app.py keeps
+# that client's fetch slot taken until the thread ends, so one address holds at
+# most MAX_CONCURRENT_URL_FETCHES_PER_IP of these and all clients together at
+# most MAX_CONCURRENT_URL_FETCHES. A deployment that cares more should point
+# the system resolver at a caching resolver with short timeouts.
 MAX_PENDING_LOOKUPS = 16
 USER_AGENT = "imgpush (+https://github.com/hauxir/imgpush)"
+
+logger = logging.getLogger("imgpush")
 
 _lookup_slots = threading.BoundedSemaphore(MAX_PENDING_LOOKUPS)
 
@@ -95,9 +101,13 @@ class FetchError(Exception):
 
     status_code is the HTTP status our own response should carry: the remote
     server failing is a bad gateway, not a mistake in the client's request.
+
+    pending_lookup is the thread of a DNS lookup the fetch stopped waiting for,
+    if there is one: it holds one of MAX_PENDING_LOOKUPS until it ends.
     """
 
     status_code = 502
+    pending_lookup: Optional[threading.Thread] = None
 
 
 class BlockedURLError(FetchError):
@@ -234,7 +244,9 @@ def _resolve(host: str, port: int, deadline: _Deadline) -> list[_AddrInfo]:
     thread.join(deadline.timeout())
     if thread.is_alive():
         # A resolver that is merely slow is not the client's URL being refused.
-        raise FetchTimeoutError("Fetching the URL took too long")
+        timed_out = FetchTimeoutError("Fetching the URL took too long")
+        timed_out.pending_lookup = thread
+        raise timed_out
     if errors and not _is_no_such_host(errors[0]):
         # The resolver itself failed (it is down, overloaded, unreachable), which
         # says nothing about the name: worth retrying, not a refused URL.
@@ -515,4 +527,8 @@ def _as_fetch_error(exc: Exception) -> FetchError:
         return FetchError("Could not connect to the remote server")
     if isinstance(exc, TimeoutError):
         return FetchTimeoutError("Timed out fetching the URL")
+    # Nothing the remote server is known to do ends up here: a local failure
+    # (the temp file could not be written) or a bug. The client is told the
+    # fetch failed; the log is the only place that says why.
+    logger.error("URL fetch failed unexpectedly", exc_info=exc)
     return FetchError("Could not fetch the URL")

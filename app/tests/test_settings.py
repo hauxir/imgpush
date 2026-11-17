@@ -37,3 +37,14 @@ def test_port_list_spellings(raw: str, expected: object) -> None:
 def test_port_list_rejects_anything_else(raw: str) -> None:
     with pytest.raises(ValueError, match="URL_UPLOAD_PORTS"):
         settings.parse_ports(settings.parse_env_value([80, 443], raw), "URL_UPLOAD_PORTS")
+
+
+@pytest.mark.parametrize("raw", ["1", "8", " 32 "])
+def test_positive_int_accepts_counts(raw: str) -> None:
+    assert settings.parse_positive_int(settings.parse_env_value(8, raw)) == int(raw)
+
+
+@pytest.mark.parametrize("raw", ["0", "-1", "", "eight", "2.5", "True", "None"])
+def test_positive_int_rejects_anything_else(raw: str) -> None:
+    with pytest.raises(ValueError, match="MAX_CONCURRENT_URL_FETCHES"):
+        settings.parse_positive_int(settings.parse_env_value(8, raw), "MAX_CONCURRENT_URL_FETCHES")

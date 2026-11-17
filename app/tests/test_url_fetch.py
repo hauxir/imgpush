@@ -251,11 +251,28 @@ def test_dns_lookup_bounded_by_deadline(monkeypatch: pytest.MonkeyPatch) -> None
     start = time.monotonic()
     try:
         # A timeout, not a refusal: the lookup never said the host doesn't exist.
-        with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.FetchTimeoutError):
+        with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.FetchTimeoutError) as exc_info:
             url_fetch.fetch_url_to_file("http://example.invalid/x.png", os.path.join(d, "out"), 1024)
         assert time.monotonic() - start < _DEADLINE_SLACK
+        # The caller is told which thread is still out there, so it can hold
+        # the client to account for it.
+        lookup = exc_info.value.pending_lookup
+        assert lookup is not None
+        assert lookup.is_alive()
     finally:
         release.set()
+    lookup.join(5)
+    assert not lookup.is_alive()
+
+
+def test_unexpected_failure_is_logged(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    def broken_download(*args: object, **kwargs: object) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(url_fetch, "_download", broken_download)
+    with caplog.at_level("ERROR", logger="imgpush"), pytest.raises(url_fetch.FetchError, match="Could not fetch"):
+        url_fetch.fetch_url_to_file("http://example.com/x.png", "/nonexistent/out", 1024)
+    assert "No space left on device" in caplog.text
 
 
 def test_unresolvable_host_looks_like_a_blocked_one(monkeypatch: pytest.MonkeyPatch) -> None:

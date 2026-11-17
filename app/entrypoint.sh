@@ -23,7 +23,9 @@ mkdir -p /etc/nginx/imgpush.d
 : > /etc/nginx/imgpush.d/realip.conf
 if [ -n "${TRUSTED_PROXIES:-}" ]; then
     for proxy in ${TRUSTED_PROXIES//,/ }; do
-        if ! python3 -c 'import ipaddress, sys; ipaddress.ip_network(sys.argv[1], strict=False)' "$proxy" 2>/dev/null; then
+        # A range is an address and a prefix length. ipaddress also reads
+        # 10.0.0.0/255.0.0.0, which nginx does not, so that form is refused here.
+        if ! python3 -c 'import ipaddress, sys; a = sys.argv[1]; ipaddress.ip_network(a, strict=False); sys.exit("/" in a and not a.split("/", 1)[1].isdigit())' "$proxy" 2>/dev/null; then
             echo "TRUSTED_PROXIES: '$proxy' is not an IP address or CIDR range" >&2
             exit 1
         fi
@@ -39,7 +41,12 @@ fi
 
 echo "Starting uvicorn with $WORKERS workers"
 
-nginx
+# Without nginx nothing can reach the app, so don't leave the container running
+# as if it were up.
+if ! nginx; then
+    echo "nginx failed to start" >&2
+    exit 1
+fi
 # Only nginx can reach the unix socket, and it always sets X-Forwarded-For
 # itself, so the header is trusted from every peer on it.
 uvicorn app:app --uds imgpush.sock --access-log --workers "$WORKERS" --limit-max-requests 200 --forwarded-allow-ips '*'

@@ -316,6 +316,45 @@ class TestUploadEndpoint:
         assert app_module._url_fetches_in_flight == 0
         assert not app_module._url_fetches_per_ip
 
+    def test_slot_stays_taken_while_an_abandoned_dns_lookup_runs(self):
+        import asyncio
+        import threading
+
+        import app as app_module
+
+        release = threading.Event()
+        lookup = threading.Thread(target=release.wait, args=(30,), daemon=True)
+        lookup.start()
+        error = url_fetch.FetchTimeoutError("Fetching the URL took too long")
+        error.pending_lookup = lookup
+
+        async def scenario() -> None:
+            with pytest.raises(url_fetch.FetchTimeoutError), app_module._url_fetch_slot("93.184.216.34"):
+                raise error
+            await asyncio.sleep(0.5)
+            assert app_module._url_fetches_in_flight == 1
+            assert app_module._url_fetches_per_ip == {"93.184.216.34": 1}
+            release.set()
+            lookup.join(5)
+            await asyncio.sleep(0.6)
+            assert app_module._url_fetches_in_flight == 0
+            assert not app_module._url_fetches_per_ip
+
+        try:
+            asyncio.run(scenario())
+        finally:
+            release.set()
+
+    def test_upload_by_url_logs_why_it_was_refused(self, client, temp_dirs, monkeypatch, caplog):
+        def blocked_fetch(*args, **kwargs):
+            raise url_fetch.BlockedURLError("Host resolves to a non-public address: intranet.example")
+
+        monkeypatch.setattr(url_fetch, "fetch_url_to_file", blocked_fetch)
+        with caplog.at_level("WARNING", logger="imgpush"):
+            response = client.post("/", json={"url": "https://intranet.example/x.png"})
+        assert response.json() == {"detail": "URL not allowed"}
+        assert "Host resolves to a non-public address: intranet.example" in caplog.text
+
     @pytest.mark.parametrize(
         ("setting", "expected"),
         [([80, 443], {80, 443}), ([8080], {8080}), (None, None)],
