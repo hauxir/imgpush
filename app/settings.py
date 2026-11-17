@@ -44,24 +44,29 @@ MAX_CONCURRENT_URL_FETCHES: int = 8
 MAX_CONCURRENT_URL_FETCHES_PER_IP: int = 2
 
 _TRUE_STRINGS = ("true", "1", "yes", "on")
-_FALSE_STRINGS = ("false", "0", "no", "off", "")
+_FALSE_STRINGS = ("false", "0", "no", "off", "none", "")
 
 
-def parse_env_value(default: Any, raw: str) -> Any:
+def parse_env_value(default: Any, raw: str, name: str = "setting") -> Any:
     """Turn an environment variable into a setting value.
 
     Values are evaluated as Python literals where possible. Settings whose
     default is a bool accept the usual spellings (true/false, 1/0, yes/no,
     on/off, any case) so that e.g. ALLOW_VIDEO=false doesn't end up as the
-    truthy string "false".
+    truthy string "false". Values that used to work keep working: None is
+    false, and quotes around the value (a compose file's `- X="True"` passes
+    them through literally) are ignored.
     """
     raw = raw.strip()
     if isinstance(default, bool):
-        if raw.lower() in _TRUE_STRINGS:
+        word = raw.lower()
+        if len(word) >= 2 and word[0] == word[-1] and word[0] in "'\"":
+            word = word[1:-1].strip()
+        if word in _TRUE_STRINGS:
             return True
-        if raw.lower() in _FALSE_STRINGS:
+        if word in _FALSE_STRINGS:
             return False
-        raise ValueError(f"Expected a boolean, got {raw!r}")
+        raise ValueError(f"{name} must be a boolean (true/false, 1/0, yes/no, on/off), got {raw!r}")
     value: Any = raw
     with contextlib.suppress(Exception):
         value = eval(raw)
@@ -71,4 +76,4 @@ def parse_env_value(default: Any, raw: str) -> Any:
 for variable in [item for item in globals() if not item.startswith("_") and item.isupper()]:
     env_var = os.getenv(variable)
     if env_var is not None:
-        globals()[variable] = parse_env_value(globals()[variable], env_var)
+        globals()[variable] = parse_env_value(globals()[variable], env_var, variable)

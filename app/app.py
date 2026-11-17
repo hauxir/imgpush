@@ -46,10 +46,14 @@ _failed_auth_limit = parse_limit(f"{settings.MAX_API_KEY_ATTEMPTS_PER_MINUTE}/mi
 # URL fetches get their own small thread pool so that slow remote servers can
 # only tie up these threads, never the default pool the rest of the app uses.
 # Admission is decided by _url_fetch_slot before a thread is asked for, so this
-# limiter never makes a request queue.
+# limiter never makes a request queue. Both are per worker process: with N
+# uvicorn workers the service as a whole runs up to N times as many.
 _url_fetch_limiter = anyio.CapacityLimiter(settings.MAX_CONCURRENT_URL_FETCHES)
 _url_fetches_in_flight = 0
 _url_fetches_per_ip: collections.Counter[str] = collections.Counter()
+# A slot frees up as soon as any running fetch ends, which is normally a second
+# or two; the 30s deadline is only the worst case.
+_URL_FETCH_RETRY_AFTER = "5"
 
 
 @contextlib.contextmanager
@@ -65,13 +69,13 @@ def _url_fetch_slot(client_ip: str) -> Iterator[None]:
         raise HTTPException(
             status_code=429,
             detail="Too many URL uploads in progress from this address",
-            headers={"Retry-After": str(url_fetch.FETCH_DEADLINE)},
+            headers={"Retry-After": _URL_FETCH_RETRY_AFTER},
         )
     if _url_fetches_in_flight >= settings.MAX_CONCURRENT_URL_FETCHES:
         raise HTTPException(
             status_code=503,
             detail="Too many URL uploads in progress, try again later",
-            headers={"Retry-After": str(url_fetch.FETCH_DEADLINE)},
+            headers={"Retry-After": _URL_FETCH_RETRY_AFTER},
         )
     _url_fetches_in_flight += 1
     _url_fetches_per_ip[client_ip] += 1
@@ -198,9 +202,9 @@ async def upload_image(
                     with _url_fetch_slot(get_remote_address(request)):
                         await anyio.to_thread.run_sync(fetch, limiter=_url_fetch_limiter)
                 except url_fetch.BlockedURLError as exc:
-                    raise HTTPException(status_code=400, detail="URL not allowed") from exc
+                    raise HTTPException(status_code=exc.status_code, detail="URL not allowed") from exc
                 except url_fetch.FetchError as exc:
-                    raise HTTPException(status_code=400, detail=str(exc)) from exc
+                    raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
             else:
                 raise HTTPException(status_code=400, detail="File is missing!")
             # Pick up remove_bg/autocrop from JSON body

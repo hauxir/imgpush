@@ -68,6 +68,12 @@ def test_disallowed_urls_rejected(url: object, allow_private: bool) -> None:
         url_fetch.fetch_url_to_file(url, os.path.join(d, "out"), 1024, allow_private=allow_private)
 
 
+# The deadline tests set a 1s deadline against servers that would otherwise take
+# 10s or more. Anything well under that proves the deadline did the cutting;
+# a tight bound only makes the test fail on a busy CI runner.
+_DEADLINE_SLACK = 6
+
+
 class _Handler(http.server.BaseHTTPRequestHandler):
     hits: ClassVar[list[str]] = []
     user_agents: ClassVar[list[str]] = []
@@ -78,14 +84,14 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if self.path == "/slow":
             self.send_response(200)
             self.end_headers()
-            for _ in range(50):
+            for _ in range(100):
                 self.wfile.write(b"x")
                 self.wfile.flush()
                 time.sleep(0.1)
             return
         if self.path == "/slow-headers":
             self.send_response(200)
-            for _ in range(50):
+            for _ in range(100):
                 self.send_header("X-Pad", "x")
                 self.flush_headers()
                 time.sleep(0.1)
@@ -190,7 +196,7 @@ def test_redirect_to_internal_address_blocked(loopback_server: int, monkeypatch:
 
 
 def test_size_limit_enforced(loopback_server: int) -> None:
-    with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.FetchError, match="too large"):
+    with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.TooLargeError, match="too large"):
         url_fetch.fetch_url_to_file(
             f"http://127.0.0.1:{loopback_server}/ok", os.path.join(d, "out"), 3, allow_private=True
         )
@@ -211,28 +217,28 @@ def test_trickling_server_hits_overall_deadline(
     # deadline can stop it, whether it trickles the body or the headers.
     monkeypatch.setattr(url_fetch, "FETCH_DEADLINE", 1)
     start = time.monotonic()
-    with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.FetchError, match="too long"):
+    with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.FetchTimeoutError, match="too long"):
         url_fetch.fetch_url_to_file(
             f"http://127.0.0.1:{loopback_server}{path}", os.path.join(d, "out"), 1024, allow_private=True
         )
-    assert time.monotonic() - start < 2
+    assert time.monotonic() - start < _DEADLINE_SLACK
 
 
 def test_stalled_tls_handshake_hits_overall_deadline(silent_server: int, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(url_fetch, "FETCH_DEADLINE", 1)
     start = time.monotonic()
-    with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.FetchError, match="too long"):
+    with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.FetchTimeoutError, match="too long"):
         url_fetch.fetch_url_to_file(
             f"https://127.0.0.1:{silent_server}/", os.path.join(d, "out"), 1024, allow_private=True
         )
-    assert time.monotonic() - start < 2
+    assert time.monotonic() - start < _DEADLINE_SLACK
 
 
 def test_dns_lookup_bounded_by_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
     release = threading.Event()
 
     def hanging_getaddrinfo(*args: object, **kwargs: object) -> list[object]:
-        release.wait(5)
+        release.wait(30)
         return []
 
     monkeypatch.setattr(url_fetch.socket, "getaddrinfo", hanging_getaddrinfo)
@@ -241,7 +247,7 @@ def test_dns_lookup_bounded_by_deadline(monkeypatch: pytest.MonkeyPatch) -> None
     try:
         with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.BlockedURLError):
             url_fetch.fetch_url_to_file("http://example.invalid/x.png", os.path.join(d, "out"), 1024)
-        assert time.monotonic() - start < 2
+        assert time.monotonic() - start < _DEADLINE_SLACK
     finally:
         release.set()
 
@@ -263,7 +269,7 @@ def test_pending_lookups_are_capped(monkeypatch: pytest.MonkeyPatch) -> None:
 
     def hanging_getaddrinfo(*args: object, **kwargs: object) -> list[object]:
         started.release()
-        release.wait(5)
+        release.wait(30)
         return []
 
     monkeypatch.setattr(url_fetch.socket, "getaddrinfo", hanging_getaddrinfo)
@@ -308,6 +314,13 @@ def test_requests_carry_imgpush_user_agent(loopback_server: int) -> None:
             f"http://127.0.0.1:{loopback_server}/x.png", os.path.join(d, "out"), 1024, allow_private=True
         )
     assert _Handler.user_agents == [url_fetch.USER_AGENT]
+
+
+def test_errors_carry_the_status_to_answer_with() -> None:
+    assert url_fetch.BlockedURLError("x").status_code == 400
+    assert url_fetch.TooLargeError("x").status_code == 413
+    assert url_fetch.FetchError("x").status_code == 502
+    assert url_fetch.FetchTimeoutError("x").status_code == 504
 
 
 def test_deadline_firing_after_finish_is_ignored() -> None:

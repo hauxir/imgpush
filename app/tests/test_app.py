@@ -175,14 +175,18 @@ class TestUploadEndpoint:
         assert response.json()["detail"] == "URL not allowed"
 
     @pytest.mark.parametrize(
-        ("error", "detail"),
+        ("error", "status", "detail"),
         [
-            (url_fetch.BlockedURLError("internal"), "URL not allowed"),
-            (url_fetch.FetchError("Remote file is too large"), "Remote file is too large"),
-            (OSError("boom"), "File is missing!"),
+            (url_fetch.BlockedURLError("internal"), 400, "URL not allowed"),
+            (url_fetch.TooLargeError("Remote file is too large"), 413, "Remote file is too large"),
+            (url_fetch.FetchError("Remote server returned HTTP 404"), 502, "Remote server returned HTTP 404"),
+            (url_fetch.FetchTimeoutError("Fetching the URL took too long"), 504, "Fetching the URL took too long"),
+            (OSError("boom"), 400, "File is missing!"),
         ],
     )
-    def test_upload_by_url_failure_removes_partial_download(self, client, temp_dirs, monkeypatch, error, detail):
+    def test_upload_by_url_failure_removes_partial_download(
+        self, client, temp_dirs, monkeypatch, error, status, detail
+    ):
         written: list[str] = []
 
         def partial_fetch(url: object, dest_path: str, max_bytes: int, *, allow_private: bool = False) -> None:
@@ -193,7 +197,7 @@ class TestUploadEndpoint:
 
         monkeypatch.setattr(url_fetch, "fetch_url_to_file", partial_fetch)
         response = client.post("/", json={"url": "https://example.com/x.png"})
-        assert response.status_code == 400
+        assert response.status_code == status
         assert response.json()["detail"] == detail
         assert len(written) == 1
         assert not os.path.exists(written[0])
