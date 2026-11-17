@@ -152,7 +152,15 @@ class TestUploadEndpoint:
         assert response.status_code == 400
         assert "File is missing" in response.json()["detail"]
 
-    @pytest.mark.parametrize("url", ["file:///etc/hostname", "http://127.0.0.1:1/", "http://169.254.169.254/latest/meta-data/"])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "file:///etc/hostname",
+            "http://127.0.0.1:1/",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://does-not-exist.invalid/",
+        ],
+    )
     def test_upload_by_url_rejects_unsafe_urls(self, client, temp_dirs, url):
         response = client.post("/", json={"url": url})
         assert response.status_code == 400
@@ -169,7 +177,7 @@ class TestUploadEndpoint:
     def test_upload_by_url_failure_removes_partial_download(self, client, temp_dirs, monkeypatch, error, detail):
         written: list[str] = []
 
-        def partial_fetch(url: object, dest_path: str, max_bytes: int) -> None:
+        def partial_fetch(url: object, dest_path: str, max_bytes: int, *, allow_private: bool = False) -> None:
             with open(dest_path, "wb") as f:
                 f.write(b"partial")
             written.append(dest_path)
@@ -181,6 +189,19 @@ class TestUploadEndpoint:
         assert response.json()["detail"] == detail
         assert len(written) == 1
         assert not os.path.exists(written[0])
+
+    @pytest.mark.parametrize(("setting", "expected"), [(True, True), (False, False), ("false", False)])
+    def test_upload_by_url_passes_allow_private_setting(self, client, temp_dirs, monkeypatch, setting, expected):
+        seen: list[bool] = []
+
+        def fake_fetch(url: object, dest_path: str, max_bytes: int, *, allow_private: bool = False) -> None:
+            seen.append(allow_private)
+            raise url_fetch.FetchError("stop")
+
+        monkeypatch.setattr("settings.ALLOW_PRIVATE_URLS", setting)
+        monkeypatch.setattr(url_fetch, "fetch_url_to_file", fake_fetch)
+        client.post("/", json={"url": "https://example.com/x.png"})
+        assert seen == [expected]
 
     def test_upload_svg_file(self, client, temp_dirs, monkeypatch):
         monkeypatch.setattr("settings.NUDE_FILTER_MAX_THRESHOLD", None)

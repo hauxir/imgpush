@@ -1,10 +1,13 @@
 import base64
+import functools
 import os
 import secrets
 import tempfile
 from typing import Any, Optional
 
 import aiofiles
+import anyio
+import anyio.to_thread
 import filetype
 import imgpush
 import settings
@@ -19,7 +22,6 @@ from limits.strategies import FixedWindowRateLimiter
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
-from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from storage import get_cache_storage, get_image_storage
 
@@ -36,6 +38,11 @@ app.state.limiter = limiter
 # Rate limiter for failed API key attempts
 _auth_limiter = FixedWindowRateLimiter(MemoryStorage())
 _failed_auth_limit = parse_limit(f"{settings.MAX_API_KEY_ATTEMPTS_PER_MINUTE}/minute")
+
+
+# URL fetches get their own small thread pool so that slow remote servers can
+# only tie up these threads, never the default pool the rest of the app uses.
+_url_fetch_limiter = anyio.CapacityLimiter(settings.MAX_CONCURRENT_URL_FETCHES)
 
 
 def _remove_if_exists(path: str) -> None:
@@ -142,9 +149,15 @@ async def upload_image(
             body = await request.json()
             if "url" in body:
                 try:
-                    await run_in_threadpool(
-                        url_fetch.fetch_url_to_file, body["url"], tmp_filepath, settings.MAX_SIZE_MB * 1024 * 1024
+                    fetch = functools.partial(
+                        url_fetch.fetch_url_to_file,
+                        body["url"],
+                        tmp_filepath,
+                        settings.MAX_SIZE_MB * 1024 * 1024,
+                        # `is True`: an unparseable value such as "false" stays a (truthy) string.
+                        allow_private=settings.ALLOW_PRIVATE_URLS is True,
                     )
+                    await anyio.to_thread.run_sync(fetch, limiter=_url_fetch_limiter)
                 except url_fetch.BlockedURLError as exc:
                     raise HTTPException(status_code=400, detail="URL not allowed") from exc
                 except url_fetch.FetchError as exc:
@@ -170,7 +183,9 @@ async def upload_image(
     file_filetype = filetype.guess_extension(tmp_filepath)
     output_type = (settings.OUTPUT_TYPE or file_filetype or "").replace(".", "")
 
-    should_remove_bg = remove_bg in ("true", True) and settings.ALLOW_REMOVE_BG and not is_svg and file_filetype not in ("mp4",)
+    should_remove_bg = (
+        remove_bg in ("true", True) and settings.ALLOW_REMOVE_BG and not is_svg and file_filetype not in ("mp4",)
+    )
     should_autocrop = autocrop in ("true", True)
 
     if should_remove_bg:

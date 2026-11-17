@@ -26,7 +26,7 @@ Uploading an image by URL:
 ```bash
 > curl -X POST -H "Content-Type: application/json" -d '{"url": "<SOME_URL>"}'  http://some.host
 ```
-Only `http`/`https` URLs pointing at public addresses are fetched; URLs that resolve to loopback, private, link-local or other internal addresses (including after redirects) are rejected with `400 URL not allowed`. Downloads are limited to `MAX_SIZE_MB`.
+Only `http`/`https` URLs pointing at public addresses are fetched; URLs whose host doesn't resolve, or resolves to loopback, private, link-local or other internal addresses (including after redirects), are rejected with `400 URL not allowed`. Set `ALLOW_PRIVATE_URLS=True` if you need to fetch from hosts on your own network. Downloads are limited to `MAX_SIZE_MB` and to 30 seconds.
 Fetching a file in a specific size(e.g. 320x240):
 ```
 http://some.host/somename.png?w=320&h=240
@@ -126,6 +126,8 @@ livenessProbe:
 | ------------- | ------------- |------------- |
 | OUTPUT_TYPE  | Same as Input file | An image type supported by imagemagick, e.g. png or jpg |
 | MAX_SIZE_MB  | "16"  | Integer, Max size per uploaded file in megabytes |
+| ALLOW_PRIVATE_URLS  | False  | Boolean, allow upload-by-URL to fetch from loopback, private and other non-public addresses. Only enable this if every client that can upload is trusted. |
+| MAX_CONCURRENT_URL_FETCHES  | 8  | Integer, how many upload-by-URL downloads run at once; further requests wait for a slot. |
 | MAX_UPLOADS_PER_DAY  | "1000"  | Integer, max per IP address |
 | MAX_UPLOADS_PER_HOUR  | "100"  | Integer, max per IP address |
 | MAX_UPLOADS_PER_MINUTE  | "20"  | Integer, max per IP address |
