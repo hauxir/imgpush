@@ -2,6 +2,7 @@ import os
 import tempfile
 
 import pytest
+import url_fetch
 
 # Check if ImageMagick is available (required for app import)
 try:
@@ -22,6 +23,20 @@ def client():
     from app import app
 
     return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def fresh_rate_limits():
+    """Start every test with empty rate-limit counters.
+
+    They are module state keyed by client address, and every test client has
+    the same one, so without this the tests share a budget: enough uploads in
+    one minute and an unrelated later test gets 429.
+    """
+    from app import _auth_limiter, limiter
+
+    limiter.reset()
+    _auth_limiter.storage.reset()
 
 
 @pytest.fixture
@@ -150,6 +165,226 @@ class TestUploadEndpoint:
         response = client.post("/")
         assert response.status_code == 400
         assert "File is missing" in response.json()["detail"]
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "file:///etc/hostname",
+            "http://127.0.0.1:1/",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://does-not-exist.invalid/",
+        ],
+    )
+    def test_upload_by_url_rejects_unsafe_urls(self, client, temp_dirs, monkeypatch, url):
+        real_getaddrinfo = url_fetch.socket.getaddrinfo
+
+        def offline_getaddrinfo(host, *args, **kwargs):
+            if isinstance(host, str) and host.endswith(".invalid"):
+                raise url_fetch.socket.gaierror(url_fetch.socket.EAI_NONAME, "Name or service not known")
+            return real_getaddrinfo(host, *args, **kwargs)
+
+        monkeypatch.setattr(url_fetch.socket, "getaddrinfo", offline_getaddrinfo)
+        response = client.post("/", json={"url": url})
+        assert response.status_code == 400
+        assert response.json()["detail"] == "URL not allowed"
+
+    @pytest.mark.parametrize(
+        ("error", "status", "detail"),
+        [
+            (url_fetch.BlockedURLError("internal"), 400, "URL not allowed"),
+            (url_fetch.TooLargeError("Remote file is too large"), 413, "Remote file is too large"),
+            (url_fetch.FetchError("Remote server returned HTTP 404"), 502, "Remote server returned HTTP 404"),
+            (url_fetch.FetchTimeoutError("Fetching the URL took too long"), 504, "Fetching the URL took too long"),
+            (OSError("boom"), 400, "File is missing!"),
+        ],
+    )
+    def test_upload_by_url_failure_removes_partial_download(
+        self, client, temp_dirs, monkeypatch, error, status, detail
+    ):
+        written: list[str] = []
+
+        def partial_fetch(
+            url: object, dest_path: str, max_bytes: int, *, allow_private: bool = False, allowed_ports: object = None
+        ) -> None:
+            with open(dest_path, "wb") as f:
+                f.write(b"partial")
+            written.append(dest_path)
+            raise error
+
+        monkeypatch.setattr(url_fetch, "fetch_url_to_file", partial_fetch)
+        response = client.post("/", json={"url": "https://example.com/x.png"})
+        assert response.status_code == status
+        assert response.json()["detail"] == detail
+        assert len(written) == 1
+        assert not os.path.exists(written[0])
+
+    @pytest.mark.parametrize(("setting", "expected"), [(True, True), (False, False)])
+    def test_upload_by_url_passes_allow_private_setting(self, client, temp_dirs, monkeypatch, setting, expected):
+        seen: list[bool] = []
+
+        def fake_fetch(
+            url: object, dest_path: str, max_bytes: int, *, allow_private: bool = False, allowed_ports: object = None
+        ) -> None:
+            seen.append(allow_private)
+            raise url_fetch.FetchError("stop")
+
+        monkeypatch.setattr("settings.ALLOW_PRIVATE_URLS", setting)
+        monkeypatch.setattr(url_fetch, "fetch_url_to_file", fake_fetch)
+        client.post("/", json={"url": "https://example.com/x.png"})
+        assert seen == [expected]
+
+    def test_upload_by_url_can_be_disabled(self, client, temp_dirs, monkeypatch):
+        called: list[str] = []
+        monkeypatch.setattr(url_fetch, "fetch_url_to_file", lambda *a, **k: called.append("fetch"))
+        monkeypatch.setattr("settings.ALLOW_URL_UPLOAD", False)
+        response = client.post("/", json={"url": "https://example.com/x.png"})
+        assert response.status_code == 403
+        assert response.json() == {"detail": "Upload by URL is disabled"}
+        assert not called
+
+    def test_upload_by_url_rejected_when_all_slots_busy(self, client, temp_dirs, monkeypatch):
+        import app as app_module
+
+        called: list[str] = []
+        monkeypatch.setattr(url_fetch, "fetch_url_to_file", lambda *a, **k: called.append("fetch"))
+        monkeypatch.setattr(app_module, "_url_fetches_in_flight", 8)
+        monkeypatch.setattr("settings.MAX_CONCURRENT_URL_FETCHES", 8)
+        response = client.post("/", json={"url": "https://example.com/x.png"})
+        assert response.status_code == 503
+        assert response.headers["Retry-After"]
+        assert called == []
+
+    def test_upload_by_url_rejected_when_client_has_too_many_in_flight(self, client, temp_dirs, monkeypatch):
+        import collections
+
+        import app as app_module
+
+        called: list[str] = []
+        monkeypatch.setattr(url_fetch, "fetch_url_to_file", lambda *a, **k: called.append("fetch"))
+        monkeypatch.setattr("settings.MAX_CONCURRENT_URL_FETCHES_PER_IP", 2)
+        monkeypatch.setattr(app_module, "_url_fetches_per_ip", collections.Counter({"testclient": 2}))
+        response = client.post("/", json={"url": "https://example.com/x.png"})
+        assert response.status_code == 429
+        assert called == []
+
+    @pytest.mark.parametrize(
+        ("trusted_proxies", "client_ip", "capped"),
+        [
+            # A private peer with no proxy declared is taken to be the proxy.
+            (None, "172.17.0.1", False),
+            (None, "127.0.0.1", False),
+            (None, "fd00:0:0:1::/64", False),
+            (None, "203.0.113.7", False),  # documentation range: not a public address either
+            (None, "93.184.216.34", True),
+            (None, "2a01:4f8:1:2::/64", True),
+            (None, "testclient", True),
+            ("172.16.0.0/12", "172.17.0.1", True),
+            ("172.16.0.0/12", "93.184.216.34", True),
+        ],
+    )
+    def test_per_ip_cap_skips_an_undeclared_proxy(self, monkeypatch, trusted_proxies, client_ip, capped):
+        import app as app_module
+
+        monkeypatch.setattr("settings.TRUSTED_PROXIES", trusted_proxies)
+        assert app_module._per_ip_cap_applies(client_ip) is capped
+
+    def test_upload_by_url_from_undeclared_proxy_is_held_to_the_overall_cap_only(self, client, temp_dirs, monkeypatch):
+        import collections
+
+        import app as app_module
+
+        def failing_fetch(*args, **kwargs):
+            raise url_fetch.FetchError("stop")
+
+        monkeypatch.setattr(url_fetch, "fetch_url_to_file", failing_fetch)
+        monkeypatch.setattr("settings.TRUSTED_PROXIES", None)
+        monkeypatch.setattr("settings.MAX_CONCURRENT_URL_FETCHES_PER_IP", 2)
+        monkeypatch.setattr(app_module, "client_key", lambda request: "172.17.0.1")
+        monkeypatch.setattr(app_module, "_url_fetches_per_ip", collections.Counter({"172.17.0.1": 2}))
+        response = client.post("/", json={"url": "https://example.com/x.png"})
+        assert response.status_code == 502
+        assert app_module._url_fetches_per_ip == {"172.17.0.1": 2}
+
+    def test_upload_by_url_releases_slot_afterwards(self, client, temp_dirs, monkeypatch):
+        import app as app_module
+
+        def failing_fetch(*args, **kwargs):
+            raise url_fetch.FetchError("stop")
+
+        monkeypatch.setattr(url_fetch, "fetch_url_to_file", failing_fetch)
+        client.post("/", json={"url": "https://example.com/x.png"})
+        assert app_module._url_fetches_in_flight == 0
+        assert not app_module._url_fetches_per_ip
+
+    def test_slot_stays_taken_while_an_abandoned_dns_lookup_runs(self):
+        import asyncio
+        import threading
+
+        import app as app_module
+
+        release = threading.Event()
+        lookup = threading.Thread(target=release.wait, args=(30,), daemon=True)
+        lookup.start()
+        error = url_fetch.FetchTimeoutError("Fetching the URL took too long")
+        error.pending_lookup = lookup
+
+        async def scenario() -> None:
+            with pytest.raises(url_fetch.FetchTimeoutError), app_module._url_fetch_slot("93.184.216.34"):
+                raise error
+            await asyncio.sleep(0.5)
+            assert app_module._url_fetches_in_flight == 1
+            assert app_module._url_fetches_per_ip == {"93.184.216.34": 1}
+            release.set()
+            lookup.join(5)
+            await asyncio.sleep(0.6)
+            assert app_module._url_fetches_in_flight == 0
+            assert not app_module._url_fetches_per_ip
+
+        try:
+            asyncio.run(scenario())
+        finally:
+            release.set()
+
+    def test_upload_by_url_logs_why_it_was_refused(self, client, temp_dirs, monkeypatch, caplog):
+        def blocked_fetch(*args, **kwargs):
+            raise url_fetch.BlockedURLError("Host resolves to a non-public address: intranet.example")
+
+        monkeypatch.setattr(url_fetch, "fetch_url_to_file", blocked_fetch)
+        with caplog.at_level("WARNING", logger="imgpush"):
+            response = client.post("/", json={"url": "https://intranet.example/x.png"})
+        assert response.json() == {"detail": "URL not allowed"}
+        assert "Host resolves to a non-public address: intranet.example" in caplog.text
+
+    @pytest.mark.parametrize(
+        ("setting", "expected"),
+        [([80, 443], {80, 443}), ([8080], {8080}), (None, None)],
+    )
+    def test_upload_by_url_passes_allowed_ports_setting(self, client, temp_dirs, monkeypatch, setting, expected):
+        seen: list[object] = []
+
+        def fake_fetch(*args: object, allowed_ports: object = None, **kwargs: object) -> None:
+            seen.append(allowed_ports)
+            raise url_fetch.FetchError("stop")
+
+        monkeypatch.setattr("settings.URL_UPLOAD_PORTS", setting)
+        monkeypatch.setattr(url_fetch, "fetch_url_to_file", fake_fetch)
+        client.post("/", json={"url": "https://example.com/x.png"})
+        assert seen == [expected]
+
+    @pytest.mark.parametrize(
+        ("address", "key"),
+        [
+            ("203.0.113.7", "203.0.113.7"),
+            ("2a01:4f8:1:2:aaaa:bbbb:cccc:dddd", "2a01:4f8:1:2::/64"),
+            ("2a01:4f8:1:2::1", "2a01:4f8:1:2::/64"),
+            ("::ffff:203.0.113.7", "203.0.113.7"),
+            ("testclient", "testclient"),
+        ],
+    )
+    def test_ipv6_clients_are_counted_by_their_64(self, address, key):
+        from app import limit_key_for
+
+        assert limit_key_for(address) == key
 
     def test_upload_svg_file(self, client, temp_dirs, monkeypatch):
         monkeypatch.setattr("settings.NUDE_FILTER_MAX_THRESHOLD", None)
