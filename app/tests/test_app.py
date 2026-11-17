@@ -267,6 +267,44 @@ class TestUploadEndpoint:
         assert response.status_code == 429
         assert called == []
 
+    @pytest.mark.parametrize(
+        ("trusted_proxies", "client_ip", "capped"),
+        [
+            # A private peer with no proxy declared is taken to be the proxy.
+            (None, "172.17.0.1", False),
+            (None, "127.0.0.1", False),
+            (None, "fd00:0:0:1::/64", False),
+            (None, "203.0.113.7", False),  # documentation range: not a public address either
+            (None, "93.184.216.34", True),
+            (None, "2a01:4f8:1:2::/64", True),
+            (None, "testclient", True),
+            ("172.16.0.0/12", "172.17.0.1", True),
+            ("172.16.0.0/12", "93.184.216.34", True),
+        ],
+    )
+    def test_per_ip_cap_skips_an_undeclared_proxy(self, monkeypatch, trusted_proxies, client_ip, capped):
+        import app as app_module
+
+        monkeypatch.setattr("settings.TRUSTED_PROXIES", trusted_proxies)
+        assert app_module._per_ip_cap_applies(client_ip) is capped
+
+    def test_upload_by_url_from_undeclared_proxy_is_held_to_the_overall_cap_only(self, client, temp_dirs, monkeypatch):
+        import collections
+
+        import app as app_module
+
+        def failing_fetch(*args, **kwargs):
+            raise url_fetch.FetchError("stop")
+
+        monkeypatch.setattr(url_fetch, "fetch_url_to_file", failing_fetch)
+        monkeypatch.setattr("settings.TRUSTED_PROXIES", None)
+        monkeypatch.setattr("settings.MAX_CONCURRENT_URL_FETCHES_PER_IP", 2)
+        monkeypatch.setattr(app_module, "client_key", lambda request: "172.17.0.1")
+        monkeypatch.setattr(app_module, "_url_fetches_per_ip", collections.Counter({"172.17.0.1": 2}))
+        response = client.post("/", json={"url": "https://example.com/x.png"})
+        assert response.status_code == 502
+        assert app_module._url_fetches_per_ip == {"172.17.0.1": 2}
+
     def test_upload_by_url_releases_slot_afterwards(self, client, temp_dirs, monkeypatch):
         import app as app_module
 
@@ -280,7 +318,7 @@ class TestUploadEndpoint:
 
     @pytest.mark.parametrize(
         ("setting", "expected"),
-        [([80, 443], {80, 443}), ((80, 8080), {80, 8080}), (8080, {8080}), ([], None), (None, None)],
+        [([80, 443], {80, 443}), ([8080], {8080}), (None, None)],
     )
     def test_upload_by_url_passes_allowed_ports_setting(self, client, temp_dirs, monkeypatch, setting, expected):
         seen: list[object] = []

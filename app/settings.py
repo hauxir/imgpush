@@ -42,8 +42,10 @@ ALLOW_URL_UPLOAD: bool = True
 ALLOW_PRIVATE_URLS: bool = False
 MAX_CONCURRENT_URL_FETCHES: int = 8
 MAX_CONCURRENT_URL_FETCHES_PER_IP: int = 2
-# Ports upload-by-URL may fetch from, e.g. "80,443,8080". Empty or None allows any.
-URL_UPLOAD_PORTS: list[int] = [80, 443]
+# Ports upload-by-URL may fetch from, e.g. "80,443,8080". None allows any.
+URL_UPLOAD_PORTS: Optional[list[int]] = [80, 443]
+# Read by entrypoint.sh to configure nginx; here only to know whether it is set.
+TRUSTED_PROXIES: Optional[str] = None
 
 _TRUE_STRINGS = ("true", "1", "yes", "on")
 _FALSE_STRINGS = ("false", "0", "no", "off", "none", "")
@@ -75,7 +77,31 @@ def parse_env_value(default: Any, raw: str, name: str = "setting") -> Any:
     return value
 
 
+def parse_ports(value: Any, name: str = "setting") -> Optional[list[int]]:
+    """Check a port-list setting, as parse_env_value left it, and return it as a list.
+
+    Only an explicit None means "any port". Anything that is not a port or a
+    list of ports is an error, an empty value included: a setting that limits
+    where we connect to must not open up, or fail on every request, because of
+    a typo.
+    """
+    if value is None:
+        return None
+    items: Any = [value] if isinstance(value, int) else value
+    if (
+        isinstance(items, (list, tuple, set, frozenset))
+        and items
+        and all(isinstance(port, int) and not isinstance(port, bool) and 0 < port < 65536 for port in items)  # pyright: ignore[reportUnknownVariableType]
+    ):
+        return sorted(set(items))  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType]
+    raise ValueError(
+        f"{name} must be a comma-separated list of ports such as 80,443, or None to allow every port, got {value!r}"
+    )
+
+
 for variable in [item for item in globals() if not item.startswith("_") and item.isupper()]:
     env_var = os.getenv(variable)
     if env_var is not None:
         globals()[variable] = parse_env_value(globals()[variable], env_var, variable)
+
+globals()["URL_UPLOAD_PORTS"] = parse_ports(URL_UPLOAD_PORTS, "URL_UPLOAD_PORTS")

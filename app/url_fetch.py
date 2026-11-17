@@ -180,6 +180,14 @@ class _Deadline:
                 raise FetchTimeoutError("Fetching the URL took too long")
             self._sockets.append(sock)
 
+    def expired(self) -> bool:
+        """Whether the budget is used up, whether or not the watchdog has run yet.
+
+        A socket's own timeout is set to what is left of the budget, so it can
+        go off a moment before the watchdog does; that is the deadline too.
+        """
+        return self.fired or time.monotonic() >= self._end
+
     def timeout(self) -> float:
         remaining = self._end - time.monotonic()
         if remaining <= 0 or self.fired:
@@ -254,7 +262,13 @@ def _is_no_such_host(exc: Exception) -> bool:
     return isinstance(exc, socket.gaierror) and exc.errno in _NO_SUCH_HOST
 
 
-def _open_socket(host: str, port: int, deadline: _Deadline, allow_private: bool) -> socket.socket:
+def _open_socket(
+    host: str, port: int, deadline: _Deadline, allow_private: bool, allowed_ports: Optional[Collection[int]]
+) -> socket.socket:
+    # The check that counts: this is the port about to be connected to, as
+    # http.client parsed it. The checks on the URL text only fail sooner.
+    if allowed_ports is not None and port not in allowed_ports:
+        raise BlockedURLError("Port is not allowed")
     infos = _resolve(host, port, deadline)
     if not allow_private:
         for info in infos:
@@ -279,23 +293,41 @@ def _open_socket(host: str, port: int, deadline: _Deadline, allow_private: bool)
 
 
 class _HTTPConnection(http.client.HTTPConnection):
-    def __init__(self, host: str, *, deadline: _Deadline, allow_private: bool, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        host: str,
+        *,
+        deadline: _Deadline,
+        allow_private: bool,
+        allowed_ports: Optional[Collection[int]],
+        **kwargs: Any,
+    ) -> None:
         super().__init__(host, **kwargs)
         self._deadline = deadline
         self._allow_private = allow_private
+        self._allowed_ports = allowed_ports
 
     def connect(self) -> None:
-        self.sock = _open_socket(self.host, self.port, self._deadline, self._allow_private)
+        self.sock = _open_socket(self.host, self.port, self._deadline, self._allow_private, self._allowed_ports)
 
 
 class _HTTPSConnection(http.client.HTTPSConnection):
-    def __init__(self, host: str, *, deadline: _Deadline, allow_private: bool, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        host: str,
+        *,
+        deadline: _Deadline,
+        allow_private: bool,
+        allowed_ports: Optional[Collection[int]],
+        **kwargs: Any,
+    ) -> None:
         super().__init__(host, context=_SSL_CONTEXT, **kwargs)
         self._deadline = deadline
         self._allow_private = allow_private
+        self._allowed_ports = allowed_ports
 
     def connect(self) -> None:
-        sock = _open_socket(self.host, self.port, self._deadline, self._allow_private)
+        sock = _open_socket(self.host, self.port, self._deadline, self._allow_private, self._allowed_ports)
         try:
             # wrap_socket detaches the plain socket, so hand the watchdog the TLS
             # socket before the handshake starts.
@@ -313,27 +345,41 @@ class _HTTPSConnection(http.client.HTTPSConnection):
 
 
 class _HTTPHandler(urllib.request.HTTPHandler):
-    def __init__(self, deadline: _Deadline, allow_private: bool) -> None:
+    def __init__(self, deadline: _Deadline, allow_private: bool, allowed_ports: Optional[Collection[int]]) -> None:
         super().__init__()
         self._deadline = deadline
         self._allow_private = allow_private
+        self._allowed_ports = allowed_ports
 
     def http_open(self, req: urllib.request.Request) -> http.client.HTTPResponse:
         def make(host: str, **kwargs: Any) -> _HTTPConnection:
-            return _HTTPConnection(host, deadline=self._deadline, allow_private=self._allow_private, **kwargs)
+            return _HTTPConnection(
+                host,
+                deadline=self._deadline,
+                allow_private=self._allow_private,
+                allowed_ports=self._allowed_ports,
+                **kwargs,
+            )
 
         return self.do_open(make, req)  # pyright: ignore[reportArgumentType]
 
 
 class _HTTPSHandler(urllib.request.HTTPSHandler):
-    def __init__(self, deadline: _Deadline, allow_private: bool) -> None:
+    def __init__(self, deadline: _Deadline, allow_private: bool, allowed_ports: Optional[Collection[int]]) -> None:
         super().__init__()
         self._deadline = deadline
         self._allow_private = allow_private
+        self._allowed_ports = allowed_ports
 
     def https_open(self, req: urllib.request.Request) -> http.client.HTTPResponse:
         def make(host: str, **kwargs: Any) -> _HTTPSConnection:
-            return _HTTPSConnection(host, deadline=self._deadline, allow_private=self._allow_private, **kwargs)
+            return _HTTPSConnection(
+                host,
+                deadline=self._deadline,
+                allow_private=self._allow_private,
+                allowed_ports=self._allowed_ports,
+                **kwargs,
+            )
 
         return self.do_open(make, req)  # pyright: ignore[reportArgumentType]
 
@@ -380,8 +426,8 @@ def _build_opener(
     # handlers and no environment proxy handler are registered.
     opener = urllib.request.OpenerDirector()
     for handler in (
-        _HTTPHandler(deadline, allow_private),
-        _HTTPSHandler(deadline, allow_private),
+        _HTTPHandler(deadline, allow_private, allowed_ports),
+        _HTTPSHandler(deadline, allow_private, allowed_ports),
         _RedirectHandler(allowed_ports),
         urllib.request.HTTPDefaultErrorHandler(),
         urllib.request.HTTPErrorProcessor(),
@@ -431,7 +477,10 @@ def fetch_url_to_file(
     """
     if not isinstance(url, str):
         raise BlockedURLError("URL must be a string")
-    parsed = urllib.parse.urlsplit(url)
+    try:
+        parsed = urllib.parse.urlsplit(url)
+    except ValueError as exc:
+        raise BlockedURLError("URL is not valid") from exc
     if parsed.scheme.lower() not in ALLOWED_SCHEMES or not parsed.hostname:
         raise BlockedURLError("Only http and https URLs are allowed")
     if not _port_allowed(parsed, allowed_ports):
@@ -443,8 +492,8 @@ def fetch_url_to_file(
         except FetchError:
             raise
         except Exception as exc:
-            if deadline.fired:
-                # The watchdog cut the connection; whatever broke is fallout.
+            if deadline.expired():
+                # The deadline cut the connection; whatever broke is fallout.
                 raise FetchTimeoutError("Fetching the URL took too long") from exc
             raise _as_fetch_error(exc) from exc
         if deadline.finish():
@@ -453,6 +502,10 @@ def fetch_url_to_file(
 
 
 def _as_fetch_error(exc: Exception) -> FetchError:
+    if isinstance(exc, http.client.InvalidURL):
+        # http.client would not send it (a space or control character, a port
+        # that is not a number): the client's URL is wrong, not the remote server.
+        return BlockedURLError("URL is not valid")
     if isinstance(exc, urllib.error.HTTPError):
         exc.close()
         return FetchError(f"Remote server returned HTTP {exc.code}")

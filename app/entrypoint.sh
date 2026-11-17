@@ -34,7 +34,7 @@ if [ -n "${TRUSTED_PROXIES:-}" ]; then
         echo "real_ip_recursive on;"
     } >> /etc/nginx/imgpush.d/realip.conf
 else
-    echo "TRUSTED_PROXIES is not set: if imgpush is behind a reverse proxy, every client counts as the proxy's address and they all share one set of per-IP limits." >&2
+    echo "TRUSTED_PROXIES is not set: if imgpush is behind a reverse proxy, every client counts as the proxy's address and they all share one set of per-IP limits (except the cap on concurrent URL uploads, which is not applied to a private address until TRUSTED_PROXIES is set)." >&2
 fi
 
 echo "Starting uvicorn with $WORKERS workers"

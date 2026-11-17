@@ -87,12 +87,26 @@ _warned_about_per_ip_cap = False
 
 def _allowed_url_ports() -> Optional[Collection[int]]:
     """settings.URL_UPLOAD_PORTS as a set of ports, or None when any port is allowed."""
-    ports: Any = settings.URL_UPLOAD_PORTS
-    if not ports:
-        return None
-    if isinstance(ports, int):
-        return {ports}
-    return {int(port) for port in ports}
+    ports = settings.URL_UPLOAD_PORTS
+    return None if ports is None else set(ports)
+
+
+def _per_ip_cap_applies(client_ip: str) -> bool:
+    """Whether client_ip is held to MAX_CONCURRENT_URL_FETCHES_PER_IP.
+
+    With TRUSTED_PROXIES unset, a client at a private address is almost
+    certainly a reverse proxy (a docker bridge, an ingress pod) that nobody
+    told us about, and everyone behind it would share the cap, which is small
+    enough to make that an outage. Such an address is held to the overall cap
+    only. Once TRUSTED_PROXIES is set, the addresses we see are taken at their
+    word.
+    """
+    if settings.TRUSTED_PROXIES:
+        return True
+    try:
+        return url_fetch.is_public_address(client_ip.split("/", 1)[0])
+    except ValueError:
+        return True
 
 
 @contextlib.contextmanager
@@ -104,7 +118,7 @@ def _url_fetch_slot(client_ip: str) -> Iterator[None]:
     event loop thread, so the counters need no lock.
     """
     global _url_fetches_in_flight, _warned_about_per_ip_cap
-    if _url_fetches_per_ip[client_ip] >= settings.MAX_CONCURRENT_URL_FETCHES_PER_IP:
+    if _url_fetches_per_ip[client_ip] >= settings.MAX_CONCURRENT_URL_FETCHES_PER_IP and _per_ip_cap_applies(client_ip):
         if not _warned_about_per_ip_cap:
             # Once per process: behind a proxy we were not told about, this cap
             # applies to all of its users together, and nothing else says so.

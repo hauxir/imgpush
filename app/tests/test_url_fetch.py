@@ -393,3 +393,26 @@ def test_resolver_failure_is_not_a_refusal(monkeypatch: pytest.MonkeyPatch) -> N
         url_fetch.fetch_url_to_file("http://example.com/x.png", os.path.join(d, "out"), 1024)
     assert not isinstance(excinfo.value, url_fetch.BlockedURLError)
     assert excinfo.value.status_code == 502
+
+
+def test_port_is_checked_where_the_connection_is_made(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Whatever the URL text looked like to the earlier checks, the port that is
+    # about to be dialled is refused before anything is looked up.
+    lookups: list[object] = []
+    monkeypatch.setattr(url_fetch.socket, "getaddrinfo", lambda *a, **k: lookups.append(a) or [])
+    with url_fetch._Deadline(5) as deadline, pytest.raises(url_fetch.BlockedURLError, match="Port"):
+        url_fetch._open_socket("example.com", 8080, deadline, False, {80, 443})
+    assert lookups == []
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["http://example.com/a b.png", "http://example.com/a\nb.png", "http://exa mple.com/x.png", "http://[::1/x.png"],
+)
+def test_malformed_url_is_the_clients_mistake(url: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    lookups: list[object] = []
+    monkeypatch.setattr(url_fetch.socket, "getaddrinfo", lambda *a, **k: lookups.append(a) or [])
+    with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.BlockedURLError) as excinfo:
+        url_fetch.fetch_url_to_file(url, os.path.join(d, "out"), 1024)
+    assert excinfo.value.status_code == 400
+    assert lookups == []
