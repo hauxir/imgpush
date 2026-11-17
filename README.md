@@ -127,7 +127,8 @@ livenessProbe:
 | OUTPUT_TYPE  | Same as Input file | An image type supported by imagemagick, e.g. png or jpg |
 | MAX_SIZE_MB  | "16"  | Integer, Max size per uploaded file in megabytes |
 | ALLOW_PRIVATE_URLS  | False  | Boolean, allow upload-by-URL to fetch from loopback, private and other non-public addresses. Only enable this if every client that can upload is trusted. |
-| MAX_CONCURRENT_URL_FETCHES  | 8  | Integer, how many upload-by-URL downloads run at once; further requests wait for a slot. |
+| MAX_CONCURRENT_URL_FETCHES  | 8  | Integer, how many upload-by-URL downloads run at once; further requests get `503` with `Retry-After`. |
+| MAX_CONCURRENT_URL_FETCHES_PER_IP  | 2  | Integer, how many upload-by-URL downloads one IP address can have running at once; further requests get `429`. |
 | MAX_UPLOADS_PER_DAY  | "1000"  | Integer, max per IP address |
 | MAX_UPLOADS_PER_HOUR  | "100"  | Integer, max per IP address |
 | MAX_UPLOADS_PER_MINUTE  | "20"  | Integer, max per IP address |
