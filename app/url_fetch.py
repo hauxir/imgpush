@@ -20,13 +20,17 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any
+from collections.abc import Collection
+from typing import Any, Optional
 
 ALLOWED_SCHEMES = ("http", "https")
 # Upper bound for any single connect/recv.
 FETCH_TIMEOUT = 10
 # Wall-clock budget for the whole fetch: DNS, connects, TLS, redirects and body.
-FETCH_DEADLINE = 30
+# Kept well under nginx's 30s proxy_read_timeout: the image still has to be
+# processed after it arrives, and a fetch that used the full 30s would be
+# answered by nginx's own 504 instead of ours.
+FETCH_DEADLINE = 20
 # getaddrinfo cannot be cancelled, so a lookup that outlives its fetch keeps its
 # thread until the system resolver gives up. This caps how many can pile up.
 # Known trade-off: anyone who controls a nameserver that never answers can fill
@@ -203,11 +207,13 @@ def _resolve(host: str, port: int, deadline: _Deadline) -> list[_AddrInfo]:
     if not slots.acquire(timeout=deadline.timeout()):
         raise FetchTimeoutError("Fetching the URL took too long")
     result: list[list[_AddrInfo]] = []
+    errors: list[Exception] = []
 
     def lookup() -> None:
         try:
-            with contextlib.suppress(OSError, UnicodeError):
-                result.append(socket.getaddrinfo(host, port, type=socket.SOCK_STREAM))
+            result.append(socket.getaddrinfo(host, port, type=socket.SOCK_STREAM))
+        except (OSError, UnicodeError) as exc:
+            errors.append(exc)
         finally:
             slots.release()
 
@@ -221,9 +227,31 @@ def _resolve(host: str, port: int, deadline: _Deadline) -> list[_AddrInfo]:
     if thread.is_alive():
         # A resolver that is merely slow is not the client's URL being refused.
         raise FetchTimeoutError("Fetching the URL took too long")
+    if errors and not _is_no_such_host(errors[0]):
+        # The resolver itself failed (it is down, overloaded, unreachable), which
+        # says nothing about the name: worth retrying, not a refused URL.
+        raise FetchError("Could not look up the remote host")
     if not result or not result[0]:
         raise BlockedURLError(f"Could not resolve host: {host}")
     return result[0]
+
+
+_NO_SUCH_HOST = frozenset(
+    code
+    for code in (
+        getattr(socket, "EAI_NONAME", None),
+        getattr(socket, "EAI_NODATA", None),
+        getattr(socket, "EAI_ADDRFAMILY", None),
+    )
+    if code is not None
+)
+
+
+def _is_no_such_host(exc: Exception) -> bool:
+    """Whether a failed lookup means the name has no address, as opposed to the resolver failing."""
+    if isinstance(exc, UnicodeError):
+        return True  # not a hostname that can be looked up at all
+    return isinstance(exc, socket.gaierror) and exc.errno in _NO_SUCH_HOST
 
 
 def _open_socket(host: str, port: int, deadline: _Deadline, allow_private: bool) -> socket.socket:
@@ -310,29 +338,51 @@ class _HTTPSHandler(urllib.request.HTTPSHandler):
         return self.do_open(make, req)  # pyright: ignore[reportArgumentType]
 
 
+def _port_allowed(parsed: urllib.parse.SplitResult, allowed_ports: Optional[Collection[int]]) -> bool:
+    try:
+        port = parsed.port
+    except ValueError:
+        return False  # not a port number at all
+    if allowed_ports is None:
+        return True
+    if port is None:
+        port = 443 if parsed.scheme.lower() == "https" else 80
+    return port in allowed_ports
+
+
 class _RedirectHandler(urllib.request.HTTPRedirectHandler):
+    def __init__(self, allowed_ports: Optional[Collection[int]]) -> None:
+        super().__init__()
+        self._allowed_ports = allowed_ports
+
     def http_error_302(self, req: urllib.request.Request, fp: Any, code: int, msg: str, headers: Any) -> Any:
         # The stdlib rejects most foreign schemes itself but lets ftp through
         # (and reports the rest as an HTTP error), so check the target first.
         location = headers.get("location") or headers.get("uri")
         if location:
             target = urllib.parse.urljoin(req.full_url, location)
-            if urllib.parse.urlsplit(target).scheme.lower() not in ALLOWED_SCHEMES:
+            parsed = urllib.parse.urlsplit(target)
+            if parsed.scheme.lower() not in ALLOWED_SCHEMES:
                 fp.close()
                 raise BlockedURLError("Redirect to a non-http(s) URL")
+            if not _port_allowed(parsed, self._allowed_ports):
+                fp.close()
+                raise BlockedURLError("Redirect to a port that is not allowed")
         return super().http_error_302(req, fp, code, msg, headers)
 
     http_error_301 = http_error_303 = http_error_307 = http_error_308 = http_error_302
 
 
-def _build_opener(deadline: _Deadline, allow_private: bool) -> urllib.request.OpenerDirector:
+def _build_opener(
+    deadline: _Deadline, allow_private: bool, allowed_ports: Optional[Collection[int]]
+) -> urllib.request.OpenerDirector:
     # Built by hand rather than with build_opener() so that no file/ftp/data
     # handlers and no environment proxy handler are registered.
     opener = urllib.request.OpenerDirector()
     for handler in (
         _HTTPHandler(deadline, allow_private),
         _HTTPSHandler(deadline, allow_private),
-        _RedirectHandler(),
+        _RedirectHandler(allowed_ports),
         urllib.request.HTTPDefaultErrorHandler(),
         urllib.request.HTTPErrorProcessor(),
     ):
@@ -342,8 +392,15 @@ def _build_opener(deadline: _Deadline, allow_private: bool) -> urllib.request.Op
     return opener
 
 
-def _download(url: str, dest_path: str, max_bytes: int, deadline: _Deadline, allow_private: bool) -> None:
-    with _build_opener(deadline, allow_private).open(url, timeout=FETCH_TIMEOUT) as response:
+def _download(
+    url: str,
+    dest_path: str,
+    max_bytes: int,
+    deadline: _Deadline,
+    allow_private: bool,
+    allowed_ports: Optional[Collection[int]],
+) -> None:
+    with _build_opener(deadline, allow_private, allowed_ports).open(url, timeout=FETCH_TIMEOUT) as response:
         content_length = response.headers.get("Content-Length", "")
         if content_length.isdigit() and int(content_length) > max_bytes:
             raise TooLargeError("Remote file is too large")
@@ -356,11 +413,19 @@ def _download(url: str, dest_path: str, max_bytes: int, deadline: _Deadline, all
                 f.write(chunk)
 
 
-def fetch_url_to_file(url: object, dest_path: str, max_bytes: int, *, allow_private: bool = False) -> None:
+def fetch_url_to_file(
+    url: object,
+    dest_path: str,
+    max_bytes: int,
+    *,
+    allow_private: bool = False,
+    allowed_ports: Optional[Collection[int]] = None,
+) -> None:
     """Download an http(s) URL to dest_path.
 
     Unless allow_private is set, only hosts that resolve exclusively to public
-    addresses are fetched. Raises BlockedURLError if the URL is not allowed,
+    addresses are fetched. allowed_ports, when given, is the set of ports the
+    URL and every redirect target may name; None allows any. Raises BlockedURLError if the URL is not allowed,
     FetchError for any other failure. On failure dest_path may hold a partial
     download; the caller owns cleaning it up.
     """
@@ -369,10 +434,12 @@ def fetch_url_to_file(url: object, dest_path: str, max_bytes: int, *, allow_priv
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme.lower() not in ALLOWED_SCHEMES or not parsed.hostname:
         raise BlockedURLError("Only http and https URLs are allowed")
+    if not _port_allowed(parsed, allowed_ports):
+        raise BlockedURLError("Port is not allowed")
 
     with _Deadline(FETCH_DEADLINE) as deadline:
         try:
-            _download(url, dest_path, max_bytes, deadline, allow_private)
+            _download(url, dest_path, max_bytes, deadline, allow_private, allowed_ports)
         except FetchError:
             raise
         except Exception as exc:

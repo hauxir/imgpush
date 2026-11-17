@@ -112,6 +112,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Location", "file:///etc/hostname")
             self.end_headers()
             return
+        if self.path == "/to-other-port":
+            self.send_response(302)
+            self.send_header("Location", "http://127.0.0.1:1/secret")
+            self.end_headers()
+            return
         if self.path == "/redirect":
             self.send_response(302)
             self.send_header("Location", f"http://127.0.0.1:{self.server.server_address[1]}/secret")
@@ -337,3 +342,54 @@ def test_deadline_fired_before_finish_is_reported() -> None:
     deadline = url_fetch._Deadline(60)
     deadline._fire()
     assert deadline.finish() is True
+
+
+@pytest.mark.parametrize(
+    "url", ["http://example.com:8080/x.png", "https://example.com:8443/x.png", "http://example.com:99999/"]
+)
+def test_port_outside_the_allowed_set_is_blocked_without_a_lookup(url: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    lookups: list[object] = []
+    monkeypatch.setattr(url_fetch.socket, "getaddrinfo", lambda *a, **k: lookups.append(a) or [])
+    with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.BlockedURLError):
+        url_fetch.fetch_url_to_file(url, os.path.join(d, "out"), 1024, allowed_ports={80, 443})
+    assert lookups == []
+
+
+@pytest.mark.parametrize("url", ["http://example.invalid/x.png", "https://example.invalid/x.png"])
+def test_url_without_a_port_uses_its_scheme_default(url: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    lookups: list[object] = []
+
+    def nxdomain(*args: object, **kwargs: object) -> list[object]:
+        lookups.append(args)
+        raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+
+    monkeypatch.setattr(url_fetch.socket, "getaddrinfo", nxdomain)
+    with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.BlockedURLError):
+        url_fetch.fetch_url_to_file(url, os.path.join(d, "out"), 1024, allowed_ports={80, 443})
+    # It got as far as the lookup, so the port check let it through.
+    assert len(lookups) == 1
+
+
+def test_redirect_to_a_port_outside_the_allowed_set_is_blocked(loopback_server: int) -> None:
+    with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.BlockedURLError, match="port"):
+        url_fetch.fetch_url_to_file(
+            f"http://127.0.0.1:{loopback_server}/to-other-port",
+            os.path.join(d, "out"),
+            1024,
+            allow_private=True,
+            allowed_ports={loopback_server},
+        )
+    assert _Handler.hits == ["/to-other-port"]
+
+
+def test_resolver_failure_is_not_a_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
+    # EAI_AGAIN is the resolver failing, not the name being wrong: the client
+    # should be told to try again (502), not that its URL is not allowed (400).
+    def try_again(*args: object, **kwargs: object) -> list[object]:
+        raise socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")
+
+    monkeypatch.setattr(url_fetch.socket, "getaddrinfo", try_again)
+    with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.FetchError) as excinfo:
+        url_fetch.fetch_url_to_file("http://example.com/x.png", os.path.join(d, "out"), 1024)
+    assert not isinstance(excinfo.value, url_fetch.BlockedURLError)
+    assert excinfo.value.status_code == 502

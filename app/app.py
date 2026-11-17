@@ -2,10 +2,12 @@ import base64
 import collections
 import contextlib
 import functools
+import ipaddress
+import logging
 import os
 import secrets
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from typing import Any, Optional
 
 import aiofiles
@@ -34,8 +36,34 @@ BLACK_PIXEL_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
 )
 
+logger = logging.getLogger("imgpush")
+
+
+def limit_key_for(address: str) -> str:
+    """The key the per-IP limits count an address under.
+
+    An IPv6 client is normally handed a whole /64 and can use any address in
+    it, so it is counted by that prefix; per address, the limits would not
+    hold it at all. IPv4 addresses, and anything that isn't an address, are
+    their own key.
+    """
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return address
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None:
+            return str(ip.ipv4_mapped)
+        return str(ipaddress.IPv6Network((ip, 64), strict=False))
+    return address
+
+
+def client_key(request: Request) -> str:
+    return limit_key_for(get_remote_address(request))
+
+
 # Rate limiter
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_key)
 app.state.limiter = limiter
 
 # Rate limiter for failed API key attempts
@@ -52,8 +80,19 @@ _url_fetch_limiter = anyio.CapacityLimiter(settings.MAX_CONCURRENT_URL_FETCHES)
 _url_fetches_in_flight = 0
 _url_fetches_per_ip: collections.Counter[str] = collections.Counter()
 # A slot frees up as soon as any running fetch ends, which is normally a second
-# or two; the 30s deadline is only the worst case.
+# or two; the fetch deadline is only the worst case.
 _URL_FETCH_RETRY_AFTER = "5"
+_warned_about_per_ip_cap = False
+
+
+def _allowed_url_ports() -> Optional[Collection[int]]:
+    """settings.URL_UPLOAD_PORTS as a set of ports, or None when any port is allowed."""
+    ports: Any = settings.URL_UPLOAD_PORTS
+    if not ports:
+        return None
+    if isinstance(ports, int):
+        return {ports}
+    return {int(port) for port in ports}
 
 
 @contextlib.contextmanager
@@ -64,8 +103,19 @@ def _url_fetch_slot(client_ip: str) -> Iterator[None]:
     slot busy and make everyone else's requests wait. Only touched from the
     event loop thread, so the counters need no lock.
     """
-    global _url_fetches_in_flight
+    global _url_fetches_in_flight, _warned_about_per_ip_cap
     if _url_fetches_per_ip[client_ip] >= settings.MAX_CONCURRENT_URL_FETCHES_PER_IP:
+        if not _warned_about_per_ip_cap:
+            # Once per process: behind a proxy we were not told about, this cap
+            # applies to all of its users together, and nothing else says so.
+            _warned_about_per_ip_cap = True
+            logger.warning(
+                "Refusing a URL upload from %s: it already has %d running (MAX_CONCURRENT_URL_FETCHES_PER_IP). "
+                + "If imgpush is behind a reverse proxy, set TRUSTED_PROXIES, "
+                + "otherwise all of the proxy's users count as this one address.",
+                client_ip,
+                settings.MAX_CONCURRENT_URL_FETCHES_PER_IP,
+            )
         raise HTTPException(
             status_code=429,
             detail="Too many URL uploads in progress from this address",
@@ -100,7 +150,7 @@ def check_auth(request: Request, authorization: Optional[str]) -> None:
 
     token = authorization[7:]
     if settings.API_KEY is None or not secrets.compare_digest(token, settings.API_KEY):
-        client_ip = get_remote_address(request)
+        client_ip = client_key(request)
         if not _auth_limiter.hit(_failed_auth_limit, client_ip):
             raise HTTPException(status_code=429, detail="Too many failed attempts")
         raise HTTPException(status_code=403, detail="Invalid API key")
@@ -200,8 +250,9 @@ async def upload_image(
                         tmp_filepath,
                         settings.MAX_SIZE_MB * 1024 * 1024,
                         allow_private=settings.ALLOW_PRIVATE_URLS,
+                        allowed_ports=_allowed_url_ports(),
                     )
-                    with _url_fetch_slot(get_remote_address(request)):
+                    with _url_fetch_slot(client_key(request)):
                         await anyio.to_thread.run_sync(fetch, limiter=_url_fetch_limiter)
                 except url_fetch.BlockedURLError as exc:
                     raise HTTPException(status_code=exc.status_code, detail="URL not allowed") from exc
@@ -228,7 +279,9 @@ async def upload_image(
     file_filetype = filetype.guess_extension(tmp_filepath)
     output_type = (settings.OUTPUT_TYPE or file_filetype or "").replace(".", "")
 
-    should_remove_bg = remove_bg in ("true", True) and settings.ALLOW_REMOVE_BG and not is_svg and file_filetype not in ("mp4",)
+    should_remove_bg = (
+        remove_bg in ("true", True) and settings.ALLOW_REMOVE_BG and not is_svg and file_filetype not in ("mp4",)
+    )
     should_autocrop = autocrop in ("true", True)
 
     if should_remove_bg:

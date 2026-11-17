@@ -26,7 +26,7 @@ Uploading an image by URL:
 ```bash
 > curl -X POST -H "Content-Type: application/json" -d '{"url": "<SOME_URL>"}'  http://some.host
 ```
-Only `http`/`https` URLs pointing at public addresses are fetched; URLs whose host doesn't resolve, or resolves to loopback, private, link-local or other internal addresses (including after redirects), are rejected with `400 URL not allowed`. Set `ALLOW_PRIVATE_URLS=True` if you need to fetch from hosts on your own network. Downloads are limited to `MAX_SIZE_MB` and to 30 seconds. Set `ALLOW_URL_UPLOAD=False` to turn upload-by-URL off altogether; such requests then get `403`.
+Only `http`/`https` URLs pointing at public addresses are fetched; URLs whose host doesn't resolve, or resolves to loopback, private, link-local or other internal addresses (including after redirects), are rejected with `400 URL not allowed`. Set `ALLOW_PRIVATE_URLS=True` if you need to fetch from hosts on your own network. Only ports 80 and 443 are fetched from unless `URL_UPLOAD_PORTS` says otherwise. Downloads are limited to `MAX_SIZE_MB` and to 20 seconds. Set `ALLOW_URL_UPLOAD=False` to turn upload-by-URL off altogether; such requests then get `403`.
 
 When the remote server is the problem the response says so: `413` if the file is over `MAX_SIZE_MB`, `504` if it took too long, `502` for anything else (an HTTP error from the remote server, a refused connection).
 Fetching a file in a specific size(e.g. 320x240):
@@ -131,9 +131,10 @@ livenessProbe:
 | ALLOW_URL_UPLOAD  | True  | Boolean, accept uploads given as a URL for imgpush to fetch. Turn it off if your clients only upload files. |
 | ALLOW_PRIVATE_URLS  | False  | Boolean, allow upload-by-URL to fetch from loopback, private and other non-public addresses. Only enable this if every client that can upload is trusted. |
 | MAX_CONCURRENT_URL_FETCHES  | 8  | Integer, how many upload-by-URL downloads each worker process runs at once; further requests get `503` with `Retry-After`. With `WORKERS` processes the container as a whole runs up to `WORKERS` times this. |
-| MAX_CONCURRENT_URL_FETCHES_PER_IP  | 2  | Integer, how many upload-by-URL downloads one IP address can have running at once in each worker process; further requests get `429`. |
+| MAX_CONCURRENT_URL_FETCHES_PER_IP  | 2  | Integer, how many upload-by-URL downloads one IP address can have running at once in each worker process; further requests get `429`. Behind a reverse proxy, set `TRUSTED_PROXIES` as well: without it all of the proxy's users count as one address and share this cap. |
+| URL_UPLOAD_PORTS  | 80,443  | Comma-separated ports upload-by-URL may fetch from, redirects included; a URL naming any other port gets `400 URL not allowed`. `None` allows every port. |
 | WORKERS  | Number of CPUs  | Integer, how many uvicorn worker processes to run. Rate and concurrency limits are counted per worker. |
-| TRUSTED_PROXIES  | None  | Comma-separated IP addresses or CIDR ranges of the reverse proxies in front of imgpush, e.g. `172.16.0.0/12`. Requests from those addresses are attributed to the client named in their `X-Forwarded-For` header. Without it every request that arrives through a proxy counts as coming from the proxy, so all of its users share one set of per-IP limits. Only list proxies you run: anything listed here can claim any client address. |
+| TRUSTED_PROXIES  | None  | Comma-separated IP addresses or CIDR ranges of the reverse proxies in front of imgpush, e.g. `172.16.0.0/12`. Requests from those addresses are attributed to the client named in their `X-Forwarded-For` header. Without it every request that arrives through a proxy counts as coming from the proxy, so all of its users share one set of per-IP limits. Only list proxies you run: anything listed here can claim any client address. Per-IP limits count an IPv6 client by its /64. |
 | MAX_UPLOADS_PER_DAY  | "1000"  | Integer, max per IP address |
 | MAX_UPLOADS_PER_HOUR  | "100"  | Integer, max per IP address |
 | MAX_UPLOADS_PER_MINUTE  | "20"  | Integer, max per IP address |

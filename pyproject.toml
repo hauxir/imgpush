@@ -17,7 +17,7 @@ dependencies = [
     "python-multipart==0.0.20",
     "slowapi==0.1.9",
     "aiofiles==24.1.0",
-    "anyio==4.12.0",
+    "anyio>=4,<5",
     "filetype==1.2.0",
     "Wand==0.6.13",
     "timeout-decorator==0.5.0",

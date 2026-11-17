@@ -42,6 +42,8 @@ ALLOW_URL_UPLOAD: bool = True
 ALLOW_PRIVATE_URLS: bool = False
 MAX_CONCURRENT_URL_FETCHES: int = 8
 MAX_CONCURRENT_URL_FETCHES_PER_IP: int = 2
+# Ports upload-by-URL may fetch from, e.g. "80,443,8080". Empty or None allows any.
+URL_UPLOAD_PORTS: list[int] = [80, 443]
 
 _TRUE_STRINGS = ("true", "1", "yes", "on")
 _FALSE_STRINGS = ("false", "0", "no", "off", "none", "")

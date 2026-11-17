@@ -33,6 +33,8 @@ if [ -n "${TRUSTED_PROXIES:-}" ]; then
         echo "real_ip_header X-Forwarded-For;"
         echo "real_ip_recursive on;"
     } >> /etc/nginx/imgpush.d/realip.conf
+else
+    echo "TRUSTED_PROXIES is not set: if imgpush is behind a reverse proxy, every client counts as the proxy's address and they all share one set of per-IP limits." >&2
 fi
 
 echo "Starting uvicorn with $WORKERS workers"

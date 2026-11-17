@@ -203,7 +203,9 @@ class TestUploadEndpoint:
     ):
         written: list[str] = []
 
-        def partial_fetch(url: object, dest_path: str, max_bytes: int, *, allow_private: bool = False) -> None:
+        def partial_fetch(
+            url: object, dest_path: str, max_bytes: int, *, allow_private: bool = False, allowed_ports: object = None
+        ) -> None:
             with open(dest_path, "wb") as f:
                 f.write(b"partial")
             written.append(dest_path)
@@ -220,7 +222,9 @@ class TestUploadEndpoint:
     def test_upload_by_url_passes_allow_private_setting(self, client, temp_dirs, monkeypatch, setting, expected):
         seen: list[bool] = []
 
-        def fake_fetch(url: object, dest_path: str, max_bytes: int, *, allow_private: bool = False) -> None:
+        def fake_fetch(
+            url: object, dest_path: str, max_bytes: int, *, allow_private: bool = False, allowed_ports: object = None
+        ) -> None:
             seen.append(allow_private)
             raise url_fetch.FetchError("stop")
 
@@ -273,6 +277,37 @@ class TestUploadEndpoint:
         client.post("/", json={"url": "https://example.com/x.png"})
         assert app_module._url_fetches_in_flight == 0
         assert not app_module._url_fetches_per_ip
+
+    @pytest.mark.parametrize(
+        ("setting", "expected"),
+        [([80, 443], {80, 443}), ((80, 8080), {80, 8080}), (8080, {8080}), ([], None), (None, None)],
+    )
+    def test_upload_by_url_passes_allowed_ports_setting(self, client, temp_dirs, monkeypatch, setting, expected):
+        seen: list[object] = []
+
+        def fake_fetch(*args: object, allowed_ports: object = None, **kwargs: object) -> None:
+            seen.append(allowed_ports)
+            raise url_fetch.FetchError("stop")
+
+        monkeypatch.setattr("settings.URL_UPLOAD_PORTS", setting)
+        monkeypatch.setattr(url_fetch, "fetch_url_to_file", fake_fetch)
+        client.post("/", json={"url": "https://example.com/x.png"})
+        assert seen == [expected]
+
+    @pytest.mark.parametrize(
+        ("address", "key"),
+        [
+            ("203.0.113.7", "203.0.113.7"),
+            ("2a01:4f8:1:2:aaaa:bbbb:cccc:dddd", "2a01:4f8:1:2::/64"),
+            ("2a01:4f8:1:2::1", "2a01:4f8:1:2::/64"),
+            ("::ffff:203.0.113.7", "203.0.113.7"),
+            ("testclient", "testclient"),
+        ],
+    )
+    def test_ipv6_clients_are_counted_by_their_64(self, address, key):
+        from app import limit_key_for
+
+        assert limit_key_for(address) == key
 
     def test_upload_svg_file(self, client, temp_dirs, monkeypatch):
         monkeypatch.setattr("settings.NUDE_FILTER_MAX_THRESHOLD", None)
