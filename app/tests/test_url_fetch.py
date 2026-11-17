@@ -27,13 +27,23 @@ import url_fetch
         "::ffff:127.0.0.1",
         "64:ff9b::a9fe:a9fe",
         "2002:7f00:1::1",
+        "192.0.0.8",
+        "198.18.0.1",
+        "240.0.0.1",
+        "255.255.255.255",
+        "2001:db8::1",
+        "ff02::1",
+        "64:ff9b:1::1",
+        "2001:0:4136:e378:8000:63bf:80ff:fffe",
     ],
 )
 def test_non_public_addresses_rejected(ip: str) -> None:
     assert not url_fetch.is_public_address(ip)
 
 
-@pytest.mark.parametrize("ip", ["8.8.8.8", "1.1.1.1", "2606:4700:4700::1111"])
+@pytest.mark.parametrize(
+    "ip", ["8.8.8.8", "1.1.1.1", "2606:4700:4700::1111", "::ffff:8.8.8.8", "64:ff9b::808:808", "2002:808:808::1"]
+)
 def test_public_addresses_allowed(ip: str) -> None:
     assert url_fetch.is_public_address(ip)
 
@@ -68,6 +78,29 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 self.wfile.write(b"x")
                 self.wfile.flush()
                 time.sleep(0.1)
+            return
+        if self.path == "/stall":
+            self.send_response(200)
+            self.end_headers()
+            for _ in range(15):
+                self.wfile.write(b"x")
+                self.wfile.flush()
+                time.sleep(0.1)
+            time.sleep(5)
+            return
+        if self.path == "/big":
+            self.send_response(200)
+            self.send_header("Content-Length", "1000000")
+            self.end_headers()
+            return
+        if self.path == "/missing":
+            self.send_response(404)
+            self.end_headers()
+            return
+        if self.path == "/to-file":
+            self.send_response(302)
+            self.send_header("Location", "file:///etc/hostname")
+            self.end_headers()
             return
         if self.path == "/redirect":
             self.send_response(302)
@@ -121,7 +154,7 @@ def test_size_limit_enforced(loopback_server: int, monkeypatch: pytest.MonkeyPat
         url_fetch.fetch_url_to_file(f"http://127.0.0.1:{loopback_server}/ok", out, 1024)
         with open(out, "rb") as f:
             assert f.read() == b"secret"
-        with pytest.raises(url_fetch.BlockedURLError):
+        with pytest.raises(url_fetch.FetchError, match="too large"):
             url_fetch.fetch_url_to_file(f"http://127.0.0.1:{loopback_server}/ok", out, 3)
 
 
@@ -129,6 +162,59 @@ def test_trickling_server_hits_overall_deadline(loopback_server: int, monkeypatc
     monkeypatch.setattr(url_fetch, "is_public_address", lambda ip: True)
     monkeypatch.setattr(url_fetch, "FETCH_DEADLINE", 1)
     start = time.monotonic()
-    with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.BlockedURLError):
+    with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.FetchError, match="too long"):
         url_fetch.fetch_url_to_file(f"http://127.0.0.1:{loopback_server}/slow", os.path.join(d, "out"), 1024)
     assert time.monotonic() - start < 3
+
+
+def test_read_timeout_rearmed_against_deadline(loopback_server: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The server trickles for ~1.5s then stalls. Each read must only wait for
+    # what is left of the 2s deadline, not a fresh per-read timeout.
+    monkeypatch.setattr(url_fetch, "is_public_address", lambda ip: True)
+    monkeypatch.setattr(url_fetch, "FETCH_DEADLINE", 2)
+    start = time.monotonic()
+    with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.FetchError) as exc_info:
+        url_fetch.fetch_url_to_file(f"http://127.0.0.1:{loopback_server}/stall", os.path.join(d, "out"), 1024)
+    assert not isinstance(exc_info.value, url_fetch.BlockedURLError)
+    assert time.monotonic() - start < 3
+
+
+def test_dns_lookup_bounded_by_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    def hanging_getaddrinfo(*args: object, **kwargs: object) -> list[object]:
+        time.sleep(5)
+        return []
+
+    monkeypatch.setattr(url_fetch.socket, "getaddrinfo", hanging_getaddrinfo)
+    monkeypatch.setattr(url_fetch, "FETCH_DEADLINE", 1)
+    start = time.monotonic()
+    with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.FetchError, match="Timed out resolving"):
+        url_fetch.fetch_url_to_file("http://example.invalid/x.png", os.path.join(d, "out"), 1024)
+    assert time.monotonic() - start < 2
+
+
+def test_content_length_over_limit_rejected_before_download(
+    loopback_server: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(url_fetch, "is_public_address", lambda ip: True)
+    with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.FetchError, match="too large"):
+        url_fetch.fetch_url_to_file(f"http://127.0.0.1:{loopback_server}/big", os.path.join(d, "out"), 1024)
+
+
+def test_http_error_is_fetch_error(loopback_server: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(url_fetch, "is_public_address", lambda ip: True)
+    with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.FetchError, match="HTTP 404") as exc_info:
+        url_fetch.fetch_url_to_file(f"http://127.0.0.1:{loopback_server}/missing", os.path.join(d, "out"), 1024)
+    assert not isinstance(exc_info.value, url_fetch.BlockedURLError)
+
+
+def test_unreachable_host_is_fetch_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(url_fetch, "is_public_address", lambda ip: True)
+    with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.FetchError) as exc_info:
+        url_fetch.fetch_url_to_file("http://127.0.0.1:1/", os.path.join(d, "out"), 1024)
+    assert not isinstance(exc_info.value, url_fetch.BlockedURLError)
+
+
+def test_redirect_to_non_http_scheme_blocked(loopback_server: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(url_fetch, "is_public_address", lambda ip: True)
+    with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.BlockedURLError):
+        url_fetch.fetch_url_to_file(f"http://127.0.0.1:{loopback_server}/to-file", os.path.join(d, "out"), 1024)

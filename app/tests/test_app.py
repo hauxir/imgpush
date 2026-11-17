@@ -2,6 +2,7 @@ import os
 import tempfile
 
 import pytest
+import url_fetch
 
 # Check if ImageMagick is available (required for app import)
 try:
@@ -156,6 +157,30 @@ class TestUploadEndpoint:
         response = client.post("/", json={"url": url})
         assert response.status_code == 400
         assert response.json()["detail"] == "URL not allowed"
+
+    @pytest.mark.parametrize(
+        ("error", "detail"),
+        [
+            (url_fetch.BlockedURLError("internal"), "URL not allowed"),
+            (url_fetch.FetchError("Remote file is too large"), "Remote file is too large"),
+            (OSError("boom"), "File is missing!"),
+        ],
+    )
+    def test_upload_by_url_failure_removes_partial_download(self, client, temp_dirs, monkeypatch, error, detail):
+        written: list[str] = []
+
+        def partial_fetch(url: object, dest_path: str, max_bytes: int) -> None:
+            with open(dest_path, "wb") as f:
+                f.write(b"partial")
+            written.append(dest_path)
+            raise error
+
+        monkeypatch.setattr(url_fetch, "fetch_url_to_file", partial_fetch)
+        response = client.post("/", json={"url": "https://example.com/x.png"})
+        assert response.status_code == 400
+        assert response.json()["detail"] == detail
+        assert len(written) == 1
+        assert not os.path.exists(written[0])
 
     def test_upload_svg_file(self, client, temp_dirs, monkeypatch):
         monkeypatch.setattr("settings.NUDE_FILTER_MAX_THRESHOLD", None)

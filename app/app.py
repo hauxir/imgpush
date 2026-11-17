@@ -38,6 +38,11 @@ _auth_limiter = FixedWindowRateLimiter(MemoryStorage())
 _failed_auth_limit = parse_limit(f"{settings.MAX_API_KEY_ATTEMPTS_PER_MINUTE}/minute")
 
 
+def _remove_if_exists(path: str) -> None:
+    if os.path.exists(path):
+        os.remove(path)
+
+
 def check_auth(request: Request, authorization: Optional[str]) -> None:
     """Validate Bearer token authentication with rate limiting on failures."""
     if not authorization or not authorization.startswith("Bearer "):
@@ -141,9 +146,9 @@ async def upload_image(
                         url_fetch.fetch_url_to_file, body["url"], tmp_filepath, settings.MAX_SIZE_MB * 1024 * 1024
                     )
                 except url_fetch.BlockedURLError as exc:
-                    if os.path.exists(tmp_filepath):
-                        os.remove(tmp_filepath)
                     raise HTTPException(status_code=400, detail="URL not allowed") from exc
+                except url_fetch.FetchError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
             else:
                 raise HTTPException(status_code=400, detail="File is missing!")
             # Pick up remove_bg/autocrop from JSON body
@@ -152,8 +157,10 @@ async def upload_image(
             if autocrop is None:
                 autocrop = body.get("autocrop")
         except HTTPException:
+            _remove_if_exists(tmp_filepath)
             raise
         except Exception:
+            _remove_if_exists(tmp_filepath)
             raise HTTPException(status_code=400, detail="File is missing!")
 
     if imgpush.check_nudity_filter(tmp_filepath):
