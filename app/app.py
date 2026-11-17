@@ -2,13 +2,13 @@ import base64
 import os
 import secrets
 import tempfile
-import urllib.request
 from typing import Any, Optional
 
 import aiofiles
 import filetype
 import imgpush
 import settings
+import url_fetch
 import video
 from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -135,7 +135,12 @@ async def upload_image(
         try:
             body = await request.json()
             if "url" in body:
-                urllib.request.urlretrieve(body["url"], tmp_filepath)
+                try:
+                    url_fetch.fetch_url_to_file(body["url"], tmp_filepath, settings.MAX_SIZE_MB * 1024 * 1024)
+                except url_fetch.BlockedURLError as exc:
+                    if os.path.exists(tmp_filepath):
+                        os.remove(tmp_filepath)
+                    raise HTTPException(status_code=400, detail="URL not allowed") from exc
             else:
                 raise HTTPException(status_code=400, detail="File is missing!")
             # Pick up remove_bg/autocrop from JSON body

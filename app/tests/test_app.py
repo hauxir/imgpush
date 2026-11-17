@@ -151,6 +151,12 @@ class TestUploadEndpoint:
         assert response.status_code == 400
         assert "File is missing" in response.json()["detail"]
 
+    @pytest.mark.parametrize("url", ["file:///etc/hostname", "http://127.0.0.1:1/", "http://169.254.169.254/latest/meta-data/"])
+    def test_upload_by_url_rejects_unsafe_urls(self, client, temp_dirs, url):
+        response = client.post("/", json={"url": url})
+        assert response.status_code == 400
+        assert response.json()["detail"] == "URL not allowed"
+
     def test_upload_svg_file(self, client, temp_dirs, monkeypatch):
         monkeypatch.setattr("settings.NUDE_FILTER_MAX_THRESHOLD", None)
 

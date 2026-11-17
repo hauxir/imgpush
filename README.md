@@ -26,6 +26,7 @@ Uploading an image by URL:
 ```bash
 > curl -X POST -H "Content-Type: application/json" -d '{"url": "<SOME_URL>"}'  http://some.host
 ```
+Only `http`/`https` URLs pointing at public addresses are fetched; URLs that resolve to loopback, private, link-local or other internal addresses (including after redirects) are rejected with `400 URL not allowed`. Downloads are limited to `MAX_SIZE_MB`.
 Fetching a file in a specific size(e.g. 320x240):
 ```
 http://some.host/somename.png?w=320&h=240
