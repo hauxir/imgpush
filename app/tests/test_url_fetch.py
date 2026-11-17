@@ -2,6 +2,7 @@ import http.server
 import os
 import tempfile
 import threading
+import time
 from collections.abc import Iterator
 from typing import ClassVar
 
@@ -60,6 +61,14 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         _Handler.hits.append(self.path)
+        if self.path == "/slow":
+            self.send_response(200)
+            self.end_headers()
+            for _ in range(50):
+                self.wfile.write(b"x")
+                self.wfile.flush()
+                time.sleep(0.1)
+            return
         if self.path == "/redirect":
             self.send_response(302)
             self.send_header("Location", f"http://127.0.0.1:{self.server.server_address[1]}/secret")
@@ -114,3 +123,12 @@ def test_size_limit_enforced(loopback_server: int, monkeypatch: pytest.MonkeyPat
             assert f.read() == b"secret"
         with pytest.raises(url_fetch.BlockedURLError):
             url_fetch.fetch_url_to_file(f"http://127.0.0.1:{loopback_server}/ok", out, 3)
+
+
+def test_trickling_server_hits_overall_deadline(loopback_server: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(url_fetch, "is_public_address", lambda ip: True)
+    monkeypatch.setattr(url_fetch, "FETCH_DEADLINE", 1)
+    start = time.monotonic()
+    with tempfile.TemporaryDirectory() as d, pytest.raises(url_fetch.BlockedURLError):
+        url_fetch.fetch_url_to_file(f"http://127.0.0.1:{loopback_server}/slow", os.path.join(d, "out"), 1024)
+    assert time.monotonic() - start < 3

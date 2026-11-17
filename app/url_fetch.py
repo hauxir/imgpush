@@ -9,17 +9,31 @@ import http.client
 import ipaddress
 import socket
 import ssl
+import threading
+import time
 import urllib.parse
 import urllib.request
 from typing import Any
 
 ALLOWED_SCHEMES = ("http", "https")
 FETCH_TIMEOUT = 10
+# Wall-clock budget for the whole fetch: DNS, connects, redirects and body.
+FETCH_DEADLINE = 30
 _NAT64_PREFIX = ipaddress.IPv6Network("64:ff9b::/96")
 
 
 class BlockedURLError(Exception):
     pass
+
+
+_state = threading.local()
+
+
+def _remaining() -> float:
+    remaining = getattr(_state, "deadline", time.monotonic() + FETCH_DEADLINE) - time.monotonic()
+    if remaining <= 0:
+        raise BlockedURLError("Fetching the URL took too long")
+    return remaining
 
 
 def is_public_address(ip: str) -> bool:
@@ -36,6 +50,7 @@ def is_public_address(ip: str) -> bool:
 
 
 def _open_public_socket(host: str, port: int, timeout: Any) -> socket.socket:
+    _remaining()
     try:
         infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except socket.gaierror as exc:
@@ -50,7 +65,8 @@ def _open_public_socket(host: str, port: int, timeout: Any) -> socket.socket:
     for family, socktype, proto, _, sockaddr in infos:
         sock = socket.socket(family, socktype, proto)
         try:
-            sock.settimeout(timeout if isinstance(timeout, (int, float)) else FETCH_TIMEOUT)
+            base = timeout if isinstance(timeout, (int, float)) else FETCH_TIMEOUT
+            sock.settimeout(min(base, _remaining()))
             sock.connect(sockaddr)
             return sock
         except OSError as exc:
@@ -103,10 +119,17 @@ def fetch_url_to_file(url: object, dest_path: str, max_bytes: int) -> None:
     if parsed.scheme.lower() not in ALLOWED_SCHEMES or not parsed.hostname:
         raise BlockedURLError("Only http and https URLs are allowed")
 
-    with _build_opener().open(url, timeout=FETCH_TIMEOUT) as response, open(dest_path, "wb") as f:
-        total = 0
-        while chunk := response.read(64 * 1024):
-            total += len(chunk)
-            if total > max_bytes:
-                raise BlockedURLError("Remote file is too large")
-            f.write(chunk)
+    _state.deadline = time.monotonic() + FETCH_DEADLINE
+    try:
+        with _build_opener().open(url, timeout=FETCH_TIMEOUT) as response, open(dest_path, "wb") as f:
+            total = 0
+            # read1 returns after a single recv, so a server trickling bytes
+            # cannot keep one read call alive past the deadline check.
+            while chunk := response.read1(64 * 1024):
+                total += len(chunk)
+                if total > max_bytes:
+                    raise BlockedURLError("Remote file is too large")
+                f.write(chunk)
+                _remaining()
+    finally:
+        del _state.deadline

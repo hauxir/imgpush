@@ -19,6 +19,7 @@ from limits.strategies import FixedWindowRateLimiter
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from storage import get_cache_storage, get_image_storage
 
@@ -136,7 +137,9 @@ async def upload_image(
             body = await request.json()
             if "url" in body:
                 try:
-                    url_fetch.fetch_url_to_file(body["url"], tmp_filepath, settings.MAX_SIZE_MB * 1024 * 1024)
+                    await run_in_threadpool(
+                        url_fetch.fetch_url_to_file, body["url"], tmp_filepath, settings.MAX_SIZE_MB * 1024 * 1024
+                    )
                 except url_fetch.BlockedURLError as exc:
                     if os.path.exists(tmp_filepath):
                         os.remove(tmp_filepath)
