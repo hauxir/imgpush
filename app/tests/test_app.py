@@ -25,6 +25,20 @@ def client():
     return TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def fresh_rate_limits():
+    """Start every test with empty rate-limit counters.
+
+    They are module state keyed by client address, and every test client has
+    the same one, so without this the tests share a budget: enough uploads in
+    one minute and an unrelated later test gets 429.
+    """
+    from app import _auth_limiter, limiter
+
+    limiter.reset()
+    _auth_limiter.storage.reset()
+
+
 @pytest.fixture
 def temp_dirs(monkeypatch):
     """Create temporary directories for images and cache."""
